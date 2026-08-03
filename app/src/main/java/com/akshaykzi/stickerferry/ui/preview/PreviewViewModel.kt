@@ -118,21 +118,26 @@ class PreviewViewModel @Inject constructor(
     private fun downloadStickerImages(pack: StickerPack) {
         viewModelScope.launch {
             val cacheDir = File(context.cacheDir, "sticker_previews").apply { mkdirs() }
-            val updatedStickers = coroutineScope {
-                pack.stickers.map { sticker ->
-                    async(Dispatchers.IO) {
-                        if (sticker.fileId.isBlank()) return@async sticker
-                        try {
-                            val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
-                            val cacheFile = File(cacheDir, "${sticker.fileUniqueId}.webp")
-                            cacheFile.writeBytes(bytes)
-                            sticker.copy(localCachePath = cacheFile.absolutePath)
-                        } catch (_: Exception) {
-                            sticker
+            
+            // Limit concurrency to avoid UI lag and network congestion
+            val updatedStickers = pack.stickers.chunked(5).flatMap { chunk ->
+                coroutineScope {
+                    chunk.map { sticker ->
+                        async(Dispatchers.IO) {
+                            if (sticker.fileId.isBlank()) return@async sticker
+                            try {
+                                val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
+                                val cacheFile = File(cacheDir, "${sticker.fileUniqueId}.webp")
+                                cacheFile.writeBytes(bytes)
+                                sticker.copy(localCachePath = cacheFile.absolutePath)
+                            } catch (_: Exception) {
+                                sticker
+                            }
                         }
-                    }
-                }.awaitAll()
+                    }.awaitAll()
+                }
             }
+
             val currentPack = _uiState.value.pack ?: return@launch
             _uiState.value = _uiState.value.copy(
                 pack = currentPack.copy(stickers = updatedStickers),

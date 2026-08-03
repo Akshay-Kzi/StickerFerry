@@ -90,8 +90,8 @@ fun PreviewScreen(
         }
     }
 
-    var editableName by remember { mutableStateOf(effectivePack?.name ?: "") }
-    var editablePublisher by remember { mutableStateOf(effectivePack?.publisher ?: "") }
+    var editableName by remember(effectivePack?.identifier) { mutableStateOf(effectivePack?.name ?: "") }
+    var editablePublisher by remember(effectivePack?.identifier) { mutableStateOf(effectivePack?.publisher ?: "") }
 
     Scaffold(
         topBar = {
@@ -201,7 +201,10 @@ fun PreviewScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(effectivePack.stickers) { sticker ->
+                    items(
+                        items = effectivePack.stickers,
+                        key = { it.fileUniqueId }
+                    ) { sticker ->
                         StickerGridItem(
                             sticker = sticker,
                             modifier = Modifier
@@ -251,16 +254,20 @@ fun StickerGridItem(
     sticker: Sticker,
     modifier: Modifier = Modifier,
 ) {
-    val containerColor = when {
-        sticker.isVideo -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-        sticker.isAnimated -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-        else -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+    val containerColor = remember(sticker.isVideo, sticker.isAnimated) {
+        when {
+            sticker.isVideo -> Color(0xFFFFEBEE) // Light Red
+            sticker.isAnimated -> Color(0xFFF3E5F5) // Light Purple
+            else -> Color(0xFFE8F5E9) // Light Green
+        }
     }
 
-    val contentColor = when {
-        sticker.isVideo -> MaterialTheme.colorScheme.error
-        sticker.isAnimated -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.secondary
+    val contentColor = remember(sticker.isVideo, sticker.isAnimated) {
+        when {
+            sticker.isVideo -> Color(0xFFC62828)
+            sticker.isAnimated -> Color(0xFF7B1FA2)
+            else -> Color(0xFF2E7D32)
+        }
     }
 
     Box(
@@ -273,13 +280,19 @@ fun StickerGridItem(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(4.dp)
         ) {
+            val context = LocalContext.current
+            val imageRequest = remember(sticker.localCachePath) {
+                ImageRequest.Builder(context)
+                    .data(sticker.localCachePath)
+                    .crossfade(enable = true)
+                    .build()
+            }
+
             if (sticker.localCachePath != null) {
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(sticker.localCachePath)
-                        .crossfade(enable = true)
-                        .build(),
+                    model = imageRequest,
                     contentDescription = sticker.fileName,
                     modifier = Modifier
                         .size(48.dp)
@@ -299,10 +312,12 @@ fun StickerGridItem(
 
             // Type badge
             Text(
-                text = when {
-                    sticker.isVideo -> "Video"
-                    sticker.isAnimated -> "GIF"
-                    else -> "Static"
+                text = remember(sticker.isVideo, sticker.isAnimated) {
+                    when {
+                        sticker.isVideo -> "Video"
+                        sticker.isAnimated -> "GIF"
+                        else -> "Static"
+                    }
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = contentColor,
