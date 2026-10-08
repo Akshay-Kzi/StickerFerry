@@ -28,10 +28,16 @@ class FetchPackUseCase @Inject constructor(
     suspend operator fun invoke(input: String): Result<List<StickerPack>> {
         return try {
             // Extract pack name from various input formats
-            val packName = extractPackName(input)
+            var packName = extractPackName(input)
                 ?: return Result.failure(
                     IllegalArgumentException("Invalid Telegram sticker pack link: $input")
                 )
+
+            // NUCLEAR CLEANING:
+            // Telegram API only accepts the base pack name.
+            // If we have something like "packname_static_1" or "packname_anim_2",
+            // we strip everything from the first occurrence of "_static" or "_anim".
+            packName = packName.split("_static")[0].split("_anim")[0].trim()
 
             // Fetch pack from Telegram API
             val telegramPack = telegramRepository.getStickerSet(packName)
@@ -83,43 +89,58 @@ class FetchPackUseCase @Inject constructor(
      * Converts and splits a Telegram sticker pack into domain models.
      */
     private fun convertAndSplitToDomain(telegramPack: TelegramStickerPack): List<StickerPack> {
-        // Filter: WhatsApp only supports static stickers in the current version of StickerFerry.
-        // Animated/Video stickers (.tgs/.webm) are skipped to prevent "Corrupted Pack" errors.
-        val staticStickers = telegramPack.stickers.filter { !it.isAnimated && !it.isVideo }.map { telegramSticker ->
+        val domainStickers = telegramPack.stickers.map { telegramSticker ->
+            val rawEmoji = telegramSticker.emoji
+            val emojiList = if (!rawEmoji.isNullOrBlank()) {
+                listOf(rawEmoji)
+            } else {
+                listOf("😀")
+            }
             Sticker(
                 fileName = "${telegramSticker.fileUniqueId}.webp",
-                emojis = if (!telegramSticker.emoji.isNullOrBlank()) {
-                    listOf(telegramSticker.emoji)
-                } else {
-                    listOf("😀")
-                },
-                isAnimated = false,
-                isVideo = false,
+                emojis = emojiList.take(3),
+                isAnimated = telegramSticker.isAnimated,
+                isVideo = telegramSticker.isVideo,
                 originalFileName = telegramSticker.fileId,
                 fileId = telegramSticker.fileId,
                 fileUniqueId = telegramSticker.fileUniqueId,
             )
         }
 
-        if (staticStickers.isEmpty()) {
-            throw IllegalArgumentException("This pack contains only animated/video stickers, which are not yet supported.")
+        if (domainStickers.isEmpty()) {
+            throw IllegalArgumentException("This pack contains no stickers.")
         }
 
-        // Split into chunks of 30
-        val chunks = staticStickers.chunked(StickerPack.MAX_STICKERS)
+        // WhatsApp requirement: A pack must be all-static or all-animated.
+        // Group stickers by their animated status.
+        val groupedStickers = domainStickers.groupBy { it.isAnimated || it.isVideo }
         
-        return chunks.mapIndexed { index, stickers ->
-            val partSuffix = if (chunks.size > 1) " - ${index + 1}" else ""
-            val idSuffix = if (chunks.size > 1) "_${index + 1}" else ""
+        val resultPacks = mutableListOf<StickerPack>()
+        
+        groupedStickers.forEach { (isAnimated, stickers) ->
+            val chunks = stickers.chunked(StickerPack.MAX_STICKERS)
+            val typePrefix = if (groupedStickers.size > 1) {
+                if (isAnimated) " (Animated)" else " (Static)"
+            } else ""
             
-            StickerPack(
-                identifier = "${telegramPack.name}$idSuffix",
-                name = "${telegramPack.title}$partSuffix",
-                publisher = "Telegram",
-                stickers = stickers,
-                trayImageFile = "tray_icon.png",
-                animatedPack = telegramPack.isAnimated || telegramPack.isVideo,
-            )
+            chunks.forEachIndexed { index, chunkStickers ->
+                val partSuffix = if (chunks.size > 1) " - ${index + 1}" else ""
+                val idSuffix = if (isAnimated) "_anim" else "_static"
+                val chunkIdSuffix = if (chunks.size > 1) "_${index + 1}" else ""
+                
+                resultPacks.add(
+                    StickerPack(
+                        identifier = "${telegramPack.name}$idSuffix$chunkIdSuffix",
+                        name = "${telegramPack.title}$typePrefix$partSuffix",
+                        publisher = "Telegram",
+                        stickers = chunkStickers,
+                        trayImageFile = "tray_icon.png",
+                        animatedPack = isAnimated,
+                    )
+                )
+            }
         }
+        
+        return resultPacks
     }
 }

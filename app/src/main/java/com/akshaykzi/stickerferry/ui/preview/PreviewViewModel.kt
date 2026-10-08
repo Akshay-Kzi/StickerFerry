@@ -68,7 +68,7 @@ class PreviewViewModel @Inject constructor(
             if (splitMatch != null) {
                 val baseName = splitMatch.groupValues[1]
                 val partIndex = splitMatch.groupValues[2].toInt() - 1
-                
+
                 fetchPackUseCase(baseName).onSuccess { parts ->
                     val correctPart = parts.getOrNull(partIndex)
                     if (correctPart != null) {
@@ -81,21 +81,33 @@ class PreviewViewModel @Inject constructor(
                         downloadStickerImages(correctPart)
                         return@launch
                     }
+                }.onFailure {
+                    // If the baseName fetch fails, we let it fall through to the general fallback
+                    // which also handles baseLink extraction.
                 }
             }
 
             // 3. Fallback to Telegram fetch
-            fetchPackUseCase(link)
+            val baseLink = if (splitMatch != null) splitMatch.groupValues[1] else link
+            fetchPackUseCase(baseLink)
                 .onSuccess { packs ->
                     val pack = packs.firstOrNull()
                     if (pack != null) {
+                        // If we were looking for a specific part, try to find it in the results
+                        val finalPack = if (splitMatch != null) {
+                            val partIndex = splitMatch.groupValues[2].toInt() - 1
+                            packs.getOrNull(partIndex) ?: pack
+                        } else {
+                            pack
+                        }
+
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            pack = pack,
-                            editableName = pack.name,
-                            editablePublisher = pack.publisher,
+                            pack = finalPack,
+                            editableName = finalPack.name,
+                            editablePublisher = finalPack.publisher,
                         )
-                        downloadStickerImages(pack)
+                        downloadStickerImages(finalPack)
                     } else {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,

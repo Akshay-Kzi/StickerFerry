@@ -61,13 +61,29 @@ class ConversionPipeline @Inject constructor(
     ): Result<File> {
         return try {
             // Find the first static sticker for the tray icon
-            val staticSticker = stickers.firstOrNull { !it.isAnimated && !it.isVideo }
+            val traySticker = stickers.firstOrNull { !it.isAnimated && !it.isVideo }
                 ?: stickers.firstOrNull()
                 ?: return Result.failure(
                     ConversionException("No stickers available for tray icon"),
                 )
 
-            staticConverter.generateTrayIcon(staticSticker, outputDir)
+            when {
+                traySticker.isAnimated -> {
+                    animatedConverter.renderFirstFrame(traySticker).fold(
+                        onSuccess = { bitmap -> staticConverter.generateTrayIconFromBitmap(bitmap, outputDir) },
+                        onFailure = { Result.failure(it) }
+                    )
+                }
+                traySticker.isVideo -> {
+                    videoConverter.extractFirstFrame(traySticker).fold(
+                        onSuccess = { bitmap -> staticConverter.generateTrayIconFromBitmap(bitmap, outputDir) },
+                        onFailure = { Result.failure(it) }
+                    )
+                }
+                else -> {
+                    staticConverter.generateTrayIcon(traySticker, outputDir)
+                }
+            }
         } catch (e: Exception) {
             Result.failure(ConversionException("Failed to generate tray icon: ${e.message}", e))
         }

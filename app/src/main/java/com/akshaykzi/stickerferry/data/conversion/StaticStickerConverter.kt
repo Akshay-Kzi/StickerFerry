@@ -3,11 +3,6 @@ package com.akshaykzi.stickerferry.data.conversion
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.RectF
 import com.akshaykzi.stickerferry.data.telegram.TelegramRepository
 import com.akshaykzi.stickerferry.domain.model.Sticker
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -44,7 +39,7 @@ class StaticStickerConverter @Inject constructor(
                 ?: return Result.failure(ConversionException("Failed to decode sticker bitmap"))
 
             // 3. Resize/pad to 512x512
-            val processedBitmap = resizeAndPad(bitmap, TARGET_SIZE)
+            val processedBitmap = ConversionUtils.resizeAndPad(bitmap, TARGET_SIZE)
 
             // 4. Re-encode as WebP with quality adjustment
             val (encodedBytes, quality) = encodeWithQualityAdjustment(processedBitmap, MAX_SIZE_BYTES)
@@ -72,7 +67,15 @@ class StaticStickerConverter @Inject constructor(
             val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 ?: return Result.failure(ConversionException("Failed to decode tray icon bitmap"))
 
-            val processedBitmap = resizeAndPad(bitmap, TRAY_ICON_SIZE)
+            generateTrayIconFromBitmap(bitmap, outputDir)
+        } catch (e: Exception) {
+            Result.failure(ConversionException("Failed to generate tray icon: ${e.message}", e))
+        }
+    }
+
+    fun generateTrayIconFromBitmap(bitmap: Bitmap, outputDir: File): Result<File> {
+        return try {
+            val processedBitmap = ConversionUtils.resizeAndPad(bitmap, TRAY_ICON_SIZE)
             
             // WhatsApp prefers PNG for tray icon
             val outputStream = ByteArrayOutputStream()
@@ -84,40 +87,8 @@ class StaticStickerConverter @Inject constructor(
 
             Result.success(trayIconFile)
         } catch (e: Exception) {
-            Result.failure(ConversionException("Failed to generate tray icon: ${e.message}", e))
+            Result.failure(ConversionException("Failed to encode tray icon: ${e.message}", e))
         }
-    }
-
-    fun resizeAndPad(bitmap: Bitmap, targetSize: Int): Bitmap {
-        val result = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(result)
-        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            isFilterBitmap = true
-            isDither = true
-        }
-
-        // WhatsApp requires a 16px margin for the 512px sticker.
-        // We calculate a "safe" content size based on the target size.
-        // For 512, safe is 480. For 96 (tray), safe is 80.
-        val margin = (targetSize * 0.03125f).toInt().coerceAtLeast(4)
-        val safeSize = targetSize - (margin * 2)
-
-        val width = bitmap.width.toFloat()
-        val height = bitmap.height.toFloat()
-        
-        val scale = minOf(safeSize.toFloat() / width, safeSize.toFloat() / height)
-        val scaledWidth = width * scale
-        val scaledHeight = height * scale
-
-        val left = (targetSize - scaledWidth) / 2f
-        val top = (targetSize - scaledHeight) / 2f
-
-        val destRect = RectF(left, top, left + scaledWidth, top + scaledHeight)
-        canvas.drawBitmap(bitmap, null, destRect, paint)
-
-        return result
     }
 
     @Suppress("DEPRECATION")

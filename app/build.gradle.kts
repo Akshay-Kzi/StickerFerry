@@ -6,11 +6,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
     namespace = "com.akshaykzi.stickerferry"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.akshaykzi.stickerferry"
@@ -59,12 +60,12 @@ android {
         compose = true
         buildConfig = true
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.5"
-    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }
@@ -89,9 +90,9 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.5")
 
     // Hilt
-    implementation("com.google.dagger:hilt-android:2.48.1")
-    ksp("com.google.dagger:hilt-android-compiler:2.48.1")
-    implementation("androidx.hilt:hilt-navigation-compose:1.1.0")
+    implementation("com.google.dagger:hilt-android:2.51.1")
+    ksp("com.google.dagger:hilt-android-compiler:2.51.1")
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
     // Networking
     implementation("io.ktor:ktor-client-android:2.3.6")
@@ -117,6 +118,10 @@ dependencies {
 
     // Coil (image loading)
     implementation("io.coil-kt:coil-compose:2.5.0")
+
+    // Animated Sticker Support
+    implementation("com.aureusapps.android:webp-android:1.1.2")
+    implementation("com.airbnb.android:lottie:6.4.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

@@ -1,73 +1,41 @@
 package com.akshaykzi.stickerferry.ui.progress
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.akshaykzi.stickerferry.domain.model.ConversionState
 import com.akshaykzi.stickerferry.domain.model.Sticker
 import com.akshaykzi.stickerferry.domain.model.StickerPack
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.akshaykzi.stickerferry.ui.theme.StickerFerryTheme
 
-/**
- * Progress screen for sticker conversion.
- *
- * Features:
- * - Per-sticker conversion progress
- * - Overall progress bar
- * - Cancel option
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProgressScreen(
@@ -100,13 +68,8 @@ fun ProgressScreen(
     val whatsappLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        // Check if WhatsApp actually returned a successful-looking result
-        // Some versions of WhatsApp don't return RESULT_OK, but they definitely 
-        // return RESULT_CANCELED if the user backed out.
         if (result.resultCode != android.app.Activity.RESULT_CANCELED) {
             onComplete(packId)
-        } else {
-            // User cancelled or it failed, stay on this screen and allow retry
         }
     }
 
@@ -143,20 +106,17 @@ fun ProgressScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Converting Stickers",
-                        style = MaterialTheme.typography.titleLarge,
+                        text = "Converting...",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Back",
-                        )
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
             )
@@ -164,197 +124,208 @@ fun ProgressScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier,
     ) { padding ->
-        Column(
+        val gradientColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
-        ) {
-            // Overall progress
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                ),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "Overall Progress",
-                            style = MaterialTheme.typography.titleMedium,
+                .drawBehind {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                        colors = listOf(
+                            gradientColor,
+                            Color.Transparent
                         )
-                        Text(
-                            text = "${(effectiveProgress * 100).toInt()}%",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    LinearProgressIndicator(
-                        progress = effectiveProgress,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "${effectiveIndex + 1} of ${effectiveStickers.size} stickers",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        radius = size.maxDimension * 0.8f,
+                        center = Offset(size.width * 0.3f, size.height * 0.7f)
                     )
                 }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Per-sticker progress list
-            Text(
-                text = "Sticker Progress",
-                style = MaterialTheme.typography.titleMedium,
+        ) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-            )
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(modifier = Modifier.height(24.dp))
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LazyVerticalStickerList(
-                stickers = effectiveStickers,
-                currentIndex = effectiveIndex,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Error summary if any
-            if (effectiveErrors.isNotEmpty()) {
+                // Expressive Progress Card
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(32.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
                     ),
+                    elevation = CardDefaults.cardElevation(0.dp)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "${effectiveErrors.size} errors occurred",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            text = "Working Magic",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary,
                         )
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                        effectiveErrors.take(3).forEach { error ->
-                            Text(
-                                text = "• $error",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                        }
-
-                        if (effectiveErrors.size > 3) {
-                            Text(
-                                text = "... and ${effectiveErrors.size - 3} more",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Action buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (isConverting && !effectiveComplete) {
-                    // Cancel button
-                    FilledTonalButton(
-                        onClick = { viewModel.cancelConversion(); onCancel() },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Cancel",
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            text = "Cancel",
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
-                    }
-                }
-
-                if (effectiveComplete || (!isConverting && effectiveProgress >= 1f)) {
-                    if (effectiveErrors.isEmpty()) {
-                        // Success - complete button
-                        Button(
-                            onClick = { viewModel.addToWhatsApp() },
-                            modifier = Modifier.weight(1f),
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Complete",
-                                modifier = Modifier.size(18.dp),
+                            CircularProgressIndicator(
+                                progress = effectiveProgress,
+                                modifier = Modifier.size(120.dp),
+                                strokeWidth = 12.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
                             )
                             Text(
-                                text = "Add to WhatsApp",
-                                modifier = Modifier.padding(start = 8.dp),
+                            text = "${(effectiveProgress * 100).toInt()}%",
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 28.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                    } else {
-                        // Errors - retry button
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Text(
+                            text = "Processing ${effectiveIndex + 1} of ${effectiveStickers.size} stickers",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // Sticker progress list
+                Text(
+                    text = "Conversion Log",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                LazyVerticalStickerList(
+                    stickers = effectiveStickers,
+                    currentIndex = effectiveIndex,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+
+                // Error summary
+                if (effectiveErrors.isNotEmpty()) {
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn() + expandVertically(),
+                    ) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f)
+                            ),
+                            elevation = CardDefaults.cardElevation(0.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Some stickers failed",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                effectiveErrors.take(3).forEach { error ->
+                                    Text(
+                                        text = "• $error",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        textAlign = TextAlign.Start
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Bottom Actions
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 32.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (isConverting && !effectiveComplete) {
                         FilledTonalButton(
-                            onClick = { viewModel.retryConversion(); onRetry() },
-                            modifier = Modifier.weight(1f),
+                            onClick = { viewModel.cancelConversion(); onCancel() },
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(16.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Retry",
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text(
-                                text = "Retry Failed",
-                                modifier = Modifier.padding(start = 8.dp),
-                            )
+                            Icon(Icons.Default.Close, contentDescription = "Cancel", modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Cancel", fontWeight = FontWeight.Medium)
                         }
                     }
-                } else if (!isConverting && effectiveErrors.isNotEmpty()) {
-                    // Fail state button (not complete but stopped with errors)
-                    Button(
-                        onClick = { viewModel.retryConversion(); onRetry() },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Retry",
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            text = "Retry Conversion",
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
+
+                    if (effectiveComplete || (!isConverting && effectiveProgress >= 1f)) {
+                        if (effectiveErrors.isEmpty()) {
+                            Button(
+                            onClick = { viewModel.addToWhatsApp() },
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            enabled = true
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = "Complete", modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Add to WhatsApp", fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            FilledTonalButton(
+                            onClick = { viewModel.retryConversion(); onRetry() },
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Retry", modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Retry Failed", fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    } else if (!isConverting && effectiveErrors.isNotEmpty()) {
+                        Button(
+                            onClick = { viewModel.retryConversion(); onRetry() },
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(20.dp),
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Retry", modifier = Modifier.size(20.dp), )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Retry Conversion", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -362,9 +333,6 @@ fun ProgressScreen(
     }
 }
 
-/**
- * Vertical list of sticker progress items.
- */
 @Composable
 fun LazyVerticalStickerList(
     stickers: List<Sticker>,
@@ -373,7 +341,7 @@ fun LazyVerticalStickerList(
 ) {
     LazyColumn(
         modifier = modifier.animateContentSize(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         itemsIndexed(stickers) { index, sticker ->
             StickerProgressItem(
@@ -390,9 +358,6 @@ fun LazyVerticalStickerList(
     }
 }
 
-/**
- * Individual sticker progress item.
- */
 @Composable
 fun StickerProgressItem(
     sticker: Sticker,
@@ -408,59 +373,61 @@ fun StickerProgressItem(
 
     val containerColor = when (state) {
         is ConversionState.Converting -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-        else -> MaterialTheme.colorScheme.surface
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
     }
 
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = containerColor,
-        ),
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .clickable { },
+        shape = RoundedCornerShape(20.dp),
+        color = containerColor,
+        tonalElevation = 2.dp
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            .fillMaxWidth()
+            .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Status indicator
             Box(
                 modifier = Modifier
                     .size(32.dp)
                     .clip(CircleShape)
-                    .background(statusColor.copy(alpha = 0.1f)),
+                    .background(statusColor.copy(alpha = 0.2f)),
                 contentAlignment = Alignment.Center,
             ) {
                 when (state) {
                     is ConversionState.Queued -> {
                         Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "Queued",
-                            modifier = Modifier.size(16.dp),
-                            tint = statusColor,
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Queued",
+                        modifier = Modifier.size(16.dp),
+                        tint = statusColor,
                         )
                     }
                     is ConversionState.Converting -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = statusColor,
+                        Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Converting",
+                        modifier = Modifier.size(16.dp),
+                        tint = statusColor,
                         )
                     }
                     is ConversionState.Done -> {
                         Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Done",
-                            modifier = Modifier.size(16.dp),
-                            tint = statusColor,
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Done",
+                        modifier = Modifier.size(16.dp),
+                        tint = statusColor,
                         )
                     }
                     is ConversionState.Failed -> {
                         Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Failed",
-                            modifier = Modifier.size(16.dp),
-                            tint = statusColor,
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Failed",
+                        modifier = Modifier.size(16.dp),
+                        tint = statusColor,
                         )
                     }
                 }
@@ -468,7 +435,6 @@ fun StickerProgressItem(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Sticker info
             Column(
                 modifier = Modifier.weight(1f),
             ) {
@@ -485,7 +451,6 @@ fun StickerProgressItem(
                 )
             }
 
-            // Type badge
             Text(
                 text = when {
                     sticker.isVideo -> "Video"
@@ -496,22 +461,5 @@ fun StickerProgressItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun ProgressScreenPreview() {
-    StickerFerryTheme {
-        ProgressScreen(
-            packId = "test_pack",
-            stickers = listOf(
-                Sticker(fileName = "sticker1.webp", emojis = listOf("😀")),
-                Sticker(fileName = "sticker2.webp", emojis = listOf("😎")),
-                Sticker(fileName = "sticker3.webp", emojis = listOf("🎉")),
-            ),
-            currentStickerIndex = 1,
-            overallProgress = 0.33f,
-        )
     }
 }

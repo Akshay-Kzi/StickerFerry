@@ -77,7 +77,6 @@ class StickerContentProvider : ContentProvider() {
 
         const val STICKER_FILE_NAME_IN_QUERY = "sticker_file_name"
         const val STICKER_FILE_EMOJI_IN_QUERY = "sticker_emoji"
-        const val STICKER_FILE_ACCESSIBILITY_TEXT_IN_QUERY = "sticker_accessibility_text"
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH)
         private var isMatcherInitialized = false
@@ -219,7 +218,7 @@ class StickerContentProvider : ContentProvider() {
                 pack.licenseAgreementUrl ?: "",
                 "1", // image_data_version
                 0, // avoid_cache
-                0 // animated_sticker_pack (forced static for now)
+                if (pack.animatedPack) 1 else 0
             ))
         }
         cursor.setNotificationUri(context?.contentResolver, uri)
@@ -234,13 +233,16 @@ class StickerContentProvider : ContentProvider() {
 
         val cursor = MatrixCursor(arrayOf(
             STICKER_FILE_NAME_IN_QUERY,
-            STICKER_FILE_EMOJI_IN_QUERY,
-            STICKER_FILE_ACCESSIBILITY_TEXT_IN_QUERY
+            STICKER_FILE_EMOJI_IN_QUERY
         ))
 
         for (sticker in pack.stickers) {
-            val emojiString = if (sticker.emojis.isNotEmpty()) TextUtils.join(",", sticker.emojis) else "😀"
-            cursor.addRow(arrayOf(sticker.fileName, emojiString, ""))
+            val emojisToUse = sticker.emojis.take(3)
+            val emojiString = if (emojisToUse.isNotEmpty()) TextUtils.join(",", emojisToUse) else "😀"
+            cursor.addRow(arrayOf(
+                sticker.fileName, 
+                emojiString
+            ))
         }
         cursor.setNotificationUri(context?.contentResolver, uri)
         return cursor
