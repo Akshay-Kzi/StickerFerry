@@ -31,6 +31,10 @@ class StickerPackRepository @Inject constructor(
         return stickerPackDao.getPackById(identifier)?.toDomain()
     }
 
+    suspend fun getPacksWithPrefix(prefix: String): List<StickerPack> {
+        return stickerPackDao.getPacksByIdPrefix(prefix).map { it.toDomain() }
+    }
+
     suspend fun deletePack(identifier: String) {
         stickerPackDao.deletePack(identifier)
     }

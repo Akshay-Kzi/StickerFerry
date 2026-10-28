@@ -23,6 +23,9 @@ interface StickerPackDao {
     @Query("SELECT * FROM sticker_packs WHERE identifier = :identifier")
     suspend fun getPackById(identifier: String): StickerPackEntity?
 
+    @Query("SELECT * FROM sticker_packs WHERE identifier LIKE :prefix || '%' ORDER BY identifier")
+    suspend fun getPacksByIdPrefix(prefix: String): List<StickerPackEntity>
+
     @Query("UPDATE sticker_packs SET addedToWhatsApp = :added WHERE identifier = :identifier")
     suspend fun updateAddedToWhatsApp(identifier: String, added: Boolean)
 }

@@ -49,65 +49,56 @@ class PreviewViewModel @Inject constructor(
                 error = null,
             )
 
-            // 1. Check local storage first (by identifier or name)
+            // 1. Check local storage first. All parts are saved to the DB when the pack
+            //    is first fetched, so parts 2+ of a >30 pack load from here without any
+            //    Telegram round-trip. Previously unconverted parts were discarded here
+            //    (no local files yet) and re-fetched from Telegram by reconstructing the
+            //    base pack name from the part identifier, which failed with
+            //    "HTTP 400: Bad Request" whenever the reconstruction was wrong.
             val packIdentifier = fetchPackUseCase.extractPackName(link) ?: link
-            val localPack = stickerPackRepository.getPack(packIdentifier) ?: stickerPackRepository.getPack(link)
-            
-            if ((localPack != null) && (verifyLocalFiles(localPack))) {
+            val localPack = stickerPackRepository.getPack(packIdentifier)
+                ?: stickerPackRepository.getPack(link)
+
+            if (localPack != null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     pack = localPack,
                     editableName = localPack.name,
                     editablePublisher = localPack.publisher,
                 )
+                // Only the preview thumbnails depend on local cache files; the pack
+                // itself is converted later by the conversion pipeline.
+                if (localPack.stickers.any { it.localCachePath == null || !File(it.localCachePath).exists() }) {
+                    downloadStickerImages(localPack)
+                }
                 return@launch
             }
 
-            // 2. If it's a "Part X" identifier but not found locally, try to fetch the base pack
-            val splitMatch = Regex("(.*)_([0-9]+)$").find(packIdentifier)
-            if (splitMatch != null) {
-                val baseName = splitMatch.groupValues[1]
-                val partIndex = splitMatch.groupValues[2].toInt() - 1
+            // 2. Not in the DB: fetch from Telegram. When the link refers to a specific
+            //    part ("pack_static_2"), match the returned part by exact identifier —
+            //    positional lookup breaks for mixed static+animated packs where the part
+            //    list contains both "_static_N" and "_anim_N" entries.
+            val partNumber = Regex("(.*)_([0-9]+)$").find(packIdentifier)
+                ?.groupValues?.get(2)?.toIntOrNull()
 
-                fetchPackUseCase(baseName).onSuccess { parts ->
-                    val correctPart = parts.getOrNull(partIndex)
-                    if (correctPart != null) {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            pack = correctPart,
-                            editableName = correctPart.name,
-                            editablePublisher = correctPart.publisher,
-                        )
-                        downloadStickerImages(correctPart)
-                        return@launch
-                    }
-                }.onFailure {
-                    // If the baseName fetch fails, we let it fall through to the general fallback
-                    // which also handles baseLink extraction.
-                }
-            }
-
-            // 3. Fallback to Telegram fetch
-            val baseLink = if (splitMatch != null) splitMatch.groupValues[1] else link
-            fetchPackUseCase(baseLink)
+            fetchPackUseCase(link)
                 .onSuccess { packs ->
-                    val pack = packs.firstOrNull()
-                    if (pack != null) {
-                        // If we were looking for a specific part, try to find it in the results
-                        val finalPack = if (splitMatch != null) {
-                            val partIndex = splitMatch.groupValues[2].toInt() - 1
-                            packs.getOrNull(partIndex) ?: pack
-                        } else {
-                            pack
-                        }
+                    val pack = if (partNumber != null) {
+                        packs.firstOrNull { it.identifier == packIdentifier }
+                            ?: packs.getOrNull(partNumber - 1)
+                            ?: packs.firstOrNull()
+                    } else {
+                        packs.firstOrNull()
+                    }
 
+                    if (pack != null) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            pack = finalPack,
-                            editableName = finalPack.name,
-                            editablePublisher = finalPack.publisher,
+                            pack = pack,
+                            editableName = pack.name,
+                            editablePublisher = pack.publisher,
                         )
-                        downloadStickerImages(finalPack)
+                        downloadStickerImages(pack)
                     } else {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
@@ -154,17 +145,6 @@ class PreviewViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(
                 pack = currentPack.copy(stickers = updatedStickers),
             )
-        }
-    }
-
-    /**
-     * Verifies that all sticker files for a pack exist locally.
-     */
-    private fun verifyLocalFiles(pack: StickerPack): Boolean {
-        if (pack.stickers.isEmpty()) return false
-        return pack.stickers.all { sticker ->
-            val path = sticker.localCachePath ?: return@all false
-            File(path).exists()
         }
     }
 }
