@@ -3,20 +3,16 @@ package com.akshaykzi.stickerferry.data.conversion
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.net.Uri
 import com.airbnb.lottie.LottieComposition
 import com.airbnb.lottie.LottieCompositionFactory
 import com.airbnb.lottie.LottieDrawable
 import com.akshaykzi.stickerferry.data.telegram.TelegramRepository
 import com.akshaykzi.stickerferry.domain.model.Sticker
 import com.akshaykzi.stickerferry.domain.model.ConversionState
-import com.aureusapps.android.webpandroid.encoder.WebPAnimEncoder
-import com.aureusapps.android.webpandroid.encoder.WebPAnimEncoderOptions
-import com.aureusapps.android.webpandroid.encoder.WebPConfig
-import com.aureusapps.android.webpandroid.encoder.WebPMuxAnimParams
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -138,22 +134,11 @@ class AnimatedStickerConverter @Inject constructor(
         val frameDurationMs = 1000 / fps
         // WhatsApp treats a 1-frame "animation" as invalid; always emit at least 2.
         val totalFrames = maxOf(2, (durationMs / frameDurationMs).toInt())
+        val perFrameMs = (durationMs / totalFrames).coerceAtLeast(8)
 
         val lottieDrawable = LottieDrawable().apply {
             setComposition(composition)
         }
-
-        val options = WebPAnimEncoderOptions(
-            animParams = WebPMuxAnimParams(loopCount = 0)
-        )
-        val encoder = WebPAnimEncoder(context, ConversionUtils.TARGET_SIZE, ConversionUtils.TARGET_SIZE, options)
-
-        // STABLE CONFIG: Force lossy and standard quality
-        val webPConfig = WebPConfig(
-            quality = quality.coerceIn(10f, 90f),
-            lossless = WebPConfig.COMPRESSION_LOSSY
-        )
-        encoder.configure(webPConfig)
 
         val bitmap = Bitmap.createBitmap(
             ConversionUtils.TARGET_SIZE,
@@ -169,6 +154,11 @@ class AnimatedStickerConverter @Inject constructor(
 
         lottieDrawable.setBounds(margin, margin, margin + safeSize, margin + safeSize)
 
+        // Encode every frame with Android's platform WebP encoder (the same encoder
+        // that produces the app's WhatsApp-accepted static stickers), then assemble
+        // the animated container ourselves. The webp-android library's muxer output
+        // was rejected by WhatsApp ("problem with the sticker pack").
+        val framePayloads = ArrayList<ByteArray>(totalFrames)
         for (i in 0 until totalFrames) {
             val currentTimeMs = i * frameDurationMs
             lottieDrawable.progress = (currentTimeMs.toFloat() / durationMs).coerceAtMost(1.0f)
@@ -176,14 +166,27 @@ class AnimatedStickerConverter @Inject constructor(
             bitmap.eraseColor(android.graphics.Color.TRANSPARENT)
             lottieDrawable.draw(canvas)
 
-            encoder.addFrame(currentTimeMs.toLong(), bitmap)
+            framePayloads.add(encodeFrame(bitmap, quality))
         }
-
-        encoder.assemble(durationMs, Uri.fromFile(outputFile))
-        encoder.release()
         bitmap.recycle()
 
+        outputFile.writeBytes(
+            AnimatedWebPContainer.mux(framePayloads, frameDurationMs = perFrameMs)
+        )
+
         return totalFrames
+    }
+
+    /** Encodes one RGBA frame as a single-frame lossy WebP via the platform encoder. */
+    private fun encodeFrame(bitmap: Bitmap, quality: Float): ByteArray {
+        val format = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            Bitmap.CompressFormat.WEBP_LOSSY
+        } else {
+            Bitmap.CompressFormat.WEBP
+        }
+        val outputStream = ByteArrayOutputStream()
+        bitmap.compress(format, quality.toInt().coerceIn(10, 95), outputStream)
+        return outputStream.toByteArray()
     }
 
     suspend fun renderFirstFrame(sticker: Sticker): Result<Bitmap> = withContext(Dispatchers.IO) {

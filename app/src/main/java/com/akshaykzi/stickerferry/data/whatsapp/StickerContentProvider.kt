@@ -217,7 +217,8 @@ class StickerContentProvider : ContentProvider() {
                 pack.privacyPolicyUrl ?: "",
                 pack.licenseAgreementUrl ?: "",
                 "1", // image_data_version
-                0, // avoid_cache
+                1, // avoid_cache: WhatsApp must re-fetch files on every add attempt,
+                // otherwise a previously rejected pack's cached files mask fixes
                 if (pack.animatedPack) 1 else 0
             ))
         }

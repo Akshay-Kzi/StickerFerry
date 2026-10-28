@@ -7,13 +7,10 @@ import android.net.Uri
 import com.akshaykzi.stickerferry.data.telegram.TelegramRepository
 import com.akshaykzi.stickerferry.domain.model.Sticker
 import com.akshaykzi.stickerferry.domain.model.ConversionState
-import com.aureusapps.android.webpandroid.encoder.WebPAnimEncoder
-import com.aureusapps.android.webpandroid.encoder.WebPAnimEncoderOptions
-import com.aureusapps.android.webpandroid.encoder.WebPConfig
-import com.aureusapps.android.webpandroid.encoder.WebPMuxAnimParams
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -103,40 +100,46 @@ class VideoStickerConverter @Inject constructor(
         durationMs: Long
     ): Int {
         val frameIntervalUs = 1_000_000L / fps
-        val options = WebPAnimEncoderOptions(
-            animParams = WebPMuxAnimParams(loopCount = 0)
-        )
-        val encoder = WebPAnimEncoder(context, ConversionUtils.TARGET_SIZE, ConversionUtils.TARGET_SIZE, options)
-        
-        val webPConfig = WebPConfig(
-            quality = quality,
-            lossless = WebPConfig.COMPRESSION_LOSSY
-        )
-        encoder.configure(webPConfig)
+        val perFrameMs = (frameIntervalUs / 1000).coerceAtLeast(8)
 
-        var frameCount = 0
+        // Encode every frame with Android's platform WebP encoder (the same encoder
+        // that produces the app's WhatsApp-accepted static stickers), then assemble
+        // the animated container ourselves. The webp-android library's muxer output
+        // was rejected by WhatsApp ("problem with the sticker pack").
+        val framePayloads = ArrayList<ByteArray>()
         for (timeUs in 0 until (durationMs * 1000) step frameIntervalUs) {
             try {
                 val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
                 if (frame != null) {
                     val processedFrame = ConversionUtils.resizeAndPad(frame, scaleFactor = scale)
-                    encoder.addFrame(timeUs / 1000, processedFrame)
-                    frameCount++
+                    framePayloads.add(encodeFrame(processedFrame, quality))
                 }
             } catch (_: Exception) {
                 // Skip problematic frames
             }
         }
 
-        if (frameCount == 0) {
-            encoder.release()
+        if (framePayloads.isEmpty()) {
             throw ConversionException("No valid frames could be extracted from video")
         }
 
-        encoder.assemble(durationMs, Uri.fromFile(outputFile))
-        encoder.release()
+        outputFile.writeBytes(
+            AnimatedWebPContainer.mux(framePayloads, frameDurationMs = perFrameMs)
+        )
 
-        return frameCount
+        return framePayloads.size
+    }
+
+    /** Encodes one RGBA frame as a single-frame lossy WebP via the platform encoder. */
+    private fun encodeFrame(bitmap: Bitmap, quality: Float): ByteArray {
+        val format = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            Bitmap.CompressFormat.WEBP_LOSSY
+        } else {
+            Bitmap.CompressFormat.WEBP
+        }
+        val outputStream = ByteArrayOutputStream()
+        bitmap.compress(format, quality.toInt().coerceIn(10, 95), outputStream)
+        return outputStream.toByteArray()
     }
 
     /**
