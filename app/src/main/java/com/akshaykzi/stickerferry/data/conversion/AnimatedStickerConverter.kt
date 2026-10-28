@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
+import com.airbnb.lottie.LottieComposition
 import com.airbnb.lottie.LottieCompositionFactory
 import com.airbnb.lottie.LottieDrawable
 import com.akshaykzi.stickerferry.data.telegram.TelegramRepository
@@ -20,6 +21,7 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
 /**
@@ -37,21 +39,35 @@ class AnimatedStickerConverter @Inject constructor(
         private const val MAX_ANIMATED_SIZE_BYTES = 480 * 1024L // 480KB for safety
 
         // Heuristic quality map: based on duration, pick a starting quality
-        // Complex animations (long duration) start at lower quality
+        // Complex animations (long duration) start at lower quality.
+        // Conservative values: WhatsApp rejects animated stickers over 500 KB, and
+        // high fps/quality at 512x512 easily exceeds that.
         private fun getStartingQuality(durationMs: Long): Float {
             return when {
                 durationMs > 5000 -> 30f
-                durationMs > 3000 -> 45f
-                else -> 60f
+                durationMs > 3000 -> 40f
+                else -> 55f
             }
         }
 
         private fun getStartingFps(durationMs: Long): Int {
             return when {
-                durationMs > 5000 -> 12
-                durationMs > 3000 -> 15
-                else -> 20
+                durationMs > 5000 -> 10
+                durationMs > 3000 -> 12
+                else -> 15
             }
+        }
+
+        private suspend fun parseLottie(json: String, cacheKey: String) = suspendCoroutine<LottieComposition> { continuation ->
+            LottieCompositionFactory.fromJsonString(json, cacheKey)
+                .addListener { result -> continuation.resume(result) }
+                // Without a failure listener the coroutine would never resume and the
+                // conversion of this sticker would hang forever.
+                .addFailureListener { error ->
+                    continuation.resumeWithException(
+                        ConversionException("Failed to parse Lottie animation: ${error.message}", error)
+                    )
+                }
         }
     }
 
@@ -60,11 +76,7 @@ class AnimatedStickerConverter @Inject constructor(
             val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
             val json = GzipUtils.decompress(bytes)
 
-            val composition = suspendCoroutine { continuation ->
-                LottieCompositionFactory.fromJsonString(json, sticker.fileUniqueId).addListener { result ->
-                    continuation.resume(result)
-                }
-            }
+            val composition = parseLottie(json, sticker.fileUniqueId)
 
             val durationMs = composition.duration.toLong().coerceIn(MIN_DURATION_MS, MAX_DURATION_MS)
             val outputFile = File(outputDir, sticker.fileName)
@@ -76,7 +88,7 @@ class AnimatedStickerConverter @Inject constructor(
 
             var frameCount = 0
             var attempt = 0
-            val maxAttempts = 3
+            val maxAttempts = 4
 
             while (attempt < maxAttempts) {
                 frameCount = renderAndEncode(composition, outputFile, currentFps, currentQuality, currentScale, durationMs)
@@ -86,9 +98,12 @@ class AnimatedStickerConverter @Inject constructor(
                 }
 
                 // Reduce quality aggressively for next attempt
-                currentQuality *= 0.7f
-                currentFps = (currentFps * 0.8f).toInt().coerceAtLeast(8)
-                if (attempt == 1) currentScale = 0.8f // Scale down on second fail
+                currentQuality = (currentQuality * 0.65f).coerceAtLeast(15f)
+                currentFps = (currentFps * 0.75f).toInt().coerceAtLeast(8)
+                when (attempt) {
+                    1 -> currentScale = 0.85f // Scale down content on second fail
+                    2 -> currentScale = 0.7f  // and harder on third
+                }
 
                 attempt++
             }
@@ -121,7 +136,8 @@ class AnimatedStickerConverter @Inject constructor(
         durationMs: Long
     ): Int {
         val frameDurationMs = 1000 / fps
-        val totalFrames = maxOf(1, (durationMs / frameDurationMs).toInt())
+        // WhatsApp treats a 1-frame "animation" as invalid; always emit at least 2.
+        val totalFrames = maxOf(2, (durationMs / frameDurationMs).toInt())
 
         val lottieDrawable = LottieDrawable().apply {
             setComposition(composition)
@@ -175,11 +191,7 @@ class AnimatedStickerConverter @Inject constructor(
             val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
             val json = GzipUtils.decompress(bytes)
 
-            val composition = suspendCoroutine { continuation ->
-                LottieCompositionFactory.fromJsonString(json, sticker.fileUniqueId).addListener { result ->
-                    continuation.resume(result)
-                }
-            }
+            val composition = parseLottie(json, sticker.fileUniqueId)
 
             val lottieDrawable = LottieDrawable().apply {
                 setComposition(composition)
