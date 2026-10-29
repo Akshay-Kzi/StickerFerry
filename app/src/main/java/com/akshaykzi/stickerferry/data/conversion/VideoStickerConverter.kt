@@ -2,14 +2,13 @@ package com.akshaykzi.stickerferry.data.conversion
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.media.MediaMetadataRetriever
-import android.net.Uri
 import com.akshaykzi.stickerferry.data.telegram.TelegramRepository
 import com.akshaykzi.stickerferry.domain.model.Sticker
 import com.akshaykzi.stickerferry.domain.model.ConversionState
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import wseemann.media.FFmpegMediaMetadataRetriever
 import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.inject.Inject
@@ -17,7 +16,11 @@ import javax.inject.Singleton
 
 /**
  * Converter for Telegram video .webm stickers.
- * Uses MediaMetadataRetriever for frame extraction and webp-android for encoding.
+ *
+ * Frame extraction uses FFmpegMediaMetadataRetriever (a bundled ffmpeg with libvpx)
+ * because Android's MediaMetadataRetriever cannot decode Telegram's VP9+alpha webm
+ * stickers frame-accurately - on many devices it returns the same frame for every
+ * timestamp or index, which silently produced static sticker packs.
  */
 @Singleton
 class VideoStickerConverter @Inject constructor(
@@ -33,7 +36,7 @@ class VideoStickerConverter @Inject constructor(
     private data class PassConfig(val fps: Int, val quality: Float, val scale: Float = 1.0f)
 
     suspend fun convert(sticker: Sticker, outputDir: File): Result<Sticker> = withContext(Dispatchers.IO) {
-        val retriever = MediaMetadataRetriever()
+        var retriever: FFmpegMediaMetadataRetriever? = null
         var tempFile: File? = null
         try {
             // 1. Download .webm file
@@ -42,9 +45,10 @@ class VideoStickerConverter @Inject constructor(
             tempFile.writeBytes(bytes)
 
             // 2. Setup Retriever
-            retriever.setDataSource(context, Uri.fromFile(tempFile))
-            
-            val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            retriever = FFmpegMediaMetadataRetriever()
+            retriever.setDataSource(tempFile.absolutePath)
+
+            val durationStr = retriever.extractMetadata(FFmpegMediaMetadataRetriever.METADATA_KEY_DURATION)
             val rawDurationMs = durationStr?.toLong() ?: 800L
             val durationMs = rawDurationMs.coerceIn(MIN_DURATION_MS, MAX_DURATION_MS)
 
@@ -86,13 +90,13 @@ class VideoStickerConverter @Inject constructor(
         } catch (e: Exception) {
             Result.failure(ConversionException("Failed to convert video sticker: ${e.message}", e))
         } finally {
-            retriever.release()
+            retriever?.release()
             tempFile?.delete()
         }
     }
 
     private fun extractAndEncode(
-        retriever: MediaMetadataRetriever,
+        retriever: FFmpegMediaMetadataRetriever,
         outputFile: File,
         fps: Int,
         quality: Float,
@@ -104,12 +108,11 @@ class VideoStickerConverter @Inject constructor(
 
         // Encode every frame with Android's platform WebP encoder (the same encoder
         // that produces the app's WhatsApp-accepted static stickers), then assemble
-        // the animated container ourselves. The webp-android library's muxer output
-        // was rejected by WhatsApp ("problem with the sticker pack").
+        // the animated container ourselves.
         val framePayloads = ArrayList<ByteArray>()
         for (timeUs in 0 until (durationMs * 1000) step frameIntervalUs) {
             try {
-                val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                val frame = retriever.getFrameAtTime(timeUs, FFmpegMediaMetadataRetriever.OPTION_CLOSEST)
                 if (frame != null) {
                     val processedFrame = ConversionUtils.resizeAndPad(frame, scaleFactor = scale)
                     framePayloads.add(encodeFrame(processedFrame, quality))
@@ -121,6 +124,16 @@ class VideoStickerConverter @Inject constructor(
 
         if (framePayloads.isEmpty()) {
             throw ConversionException("No valid frames could be extracted from video")
+        }
+
+        // A decoder that repeats one frame would ship a still image disguised as an
+        // animation; fail loudly instead.
+        val first = framePayloads[0]
+        val distinctFrames = framePayloads.count { !it.contentEquals(first) } + 1
+        if (distinctFrames < 2) {
+            throw ConversionException(
+                "This device could not decode the video into distinct frames. Try again or use another pack."
+            )
         }
 
         outputFile.writeBytes(
@@ -147,22 +160,24 @@ class VideoStickerConverter @Inject constructor(
      * Useful for tray icon generation.
      */
     suspend fun extractFirstFrame(sticker: Sticker): Result<Bitmap> = withContext(Dispatchers.IO) {
-        val retriever = MediaMetadataRetriever()
+        var retriever: FFmpegMediaMetadataRetriever? = null
+        var tempFile: File? = null
         try {
             val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
-            val tempFile = File(context.cacheDir, "${sticker.fileUniqueId}_tray.webm")
+            tempFile = File(context.cacheDir, "${sticker.fileUniqueId}_tray.webm")
             tempFile.writeBytes(bytes)
 
-            retriever.setDataSource(context, Uri.fromFile(tempFile))
-            val frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
+            retriever = FFmpegMediaMetadataRetriever()
+            retriever.setDataSource(tempFile.absolutePath)
+            val frame = retriever.getFrameAtTime(0, FFmpegMediaMetadataRetriever.OPTION_CLOSEST)
                 ?: throw ConversionException("Failed to extract frame at time 0")
 
-            tempFile.delete()
             Result.success(frame)
         } catch (e: Exception) {
             Result.failure(ConversionException("Failed to extract first frame: ${e.message}", e))
         } finally {
-            retriever.release()
+            retriever?.release()
+            tempFile?.delete()
         }
     }
 }

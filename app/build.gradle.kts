@@ -123,6 +123,15 @@ dependencies {
     implementation("com.aureusapps.android:webp-android:1.1.2")
     implementation("com.airbnb.android:lottie:6.4.0")
 
+    // FFmpeg-backed MediaMetadataRetriever: Android's MediaMetadataRetriever cannot
+    // decode Telegram video stickers (VP9 + alpha in webm) frame-accurately - it
+    // returns the same frame for every timestamp/index on many devices.
+    implementation("com.github.wseemann:FFmpegMediaMetadataRetriever-core:1.0.19")
+    implementation("com.github.wseemann:FFmpegMediaMetadataRetriever-native-arm64-v8a:1.0.19")
+    implementation("com.github.wseemann:FFmpegMediaMetadataRetriever-native-armeabi-v7a:1.0.19")
+    implementation("com.github.wseemann:FFmpegMediaMetadataRetriever-native-x86:1.0.19")
+    implementation("com.github.wseemann:FFmpegMediaMetadataRetriever-native-x86_64:1.0.19")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
