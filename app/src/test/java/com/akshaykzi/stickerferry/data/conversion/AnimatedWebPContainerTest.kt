@@ -53,7 +53,14 @@ class AnimatedWebPContainerTest {
                         64, readU24(out, pos + 12) + 1)
                     assertEquals(64, readU24(out, pos + 15) + 1)
                 }
-                "ANIM" -> animLoop = readU16(out, pos + 12)
+                "ANIM" -> {
+                    // [Blue, Green, Red, Alpha] must be opaque white, matching
+                    // libwebp's own encoders; transparent bg is WhatsApp-rejected.
+                    assertEquals("ANIM background opaque white",
+                        "ffffffff", String.format("%02x%02x%02x%02x",
+                            out[pos + 8], out[pos + 9], out[pos + 10], out[pos + 11]))
+                    animLoop = readU16(out, pos + 12)
+                }
                 "ANMF" -> {
                     assertEquals("frame at origin", 0, readU24(out, pos + 8))
                     assertEquals("frame width", 64, readU24(out, pos + 14) + 1)

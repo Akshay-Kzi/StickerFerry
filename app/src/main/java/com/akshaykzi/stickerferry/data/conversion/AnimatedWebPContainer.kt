@@ -49,8 +49,15 @@ object AnimatedWebPContainer {
         )
         out.writeChunk("VP8X", vp8x)
 
-        // ANIM: background [Blue, Green, Red, Alpha] = transparent, loop forever.
-        val anim = byteArrayOf(0, 0, 0, 0, (loopCount and 0xFF).toByte(), ((loopCount shr 8) and 0xFF).toByte())
+        // ANIM: background [Blue, Green, Red, Alpha] + loop count (0 = infinite).
+        // Background is opaque white (0xFFFFFFFF), matching libwebp's img2webp /
+        // Pillow / every mainstream animated-WebP encoder. A fully transparent
+        // background is spec-legal but rejected by WhatsApp's validator, and has no
+        // visual effect here since every frame is full-canvas with no blending.
+        val anim = byteArrayOf(
+            0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
+            (loopCount and 0xFF).toByte(), ((loopCount shr 8) and 0xFF).toByte(),
+        )
         out.writeChunk("ANIM", anim)
 
         val duration = u24(frameDurationMs)

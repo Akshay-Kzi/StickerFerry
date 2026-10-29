@@ -16,9 +16,6 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
 
 /**
  * Converter for Telegram animated .tgs stickers.
@@ -54,16 +51,19 @@ class AnimatedStickerConverter @Inject constructor(
             }
         }
 
-        private suspend fun parseLottie(json: String, cacheKey: String) = suspendCoroutine<LottieComposition> { continuation ->
-            LottieCompositionFactory.fromJsonString(json, cacheKey)
-                .addListener { result -> continuation.resume(result) }
-                // Without a failure listener the coroutine would never resume and the
-                // conversion of this sticker would hang forever.
-                .addFailureListener { error ->
-                    continuation.resumeWithException(
-                        ConversionException("Failed to parse Lottie animation: ${error.message}", error)
-                    )
-                }
+        /**
+         * Parses a .tgs payload synchronously. The async LottieCompositionFactory
+         * variant must NOT be used here: its task can deliver the result to the same
+         * listener twice (immediately + via its queued main-thread notification),
+         * which crashes "Already resumed". We are on Dispatchers.IO already, so the
+         * sync parse is both safe and simpler.
+         */
+        private fun parseLottie(json: String, cacheKey: String): LottieComposition {
+            val result = LottieCompositionFactory.fromJsonStringSync(json, cacheKey)
+            return result.value ?: throw ConversionException(
+                "Failed to parse Lottie animation: ${result.exception?.message}",
+                result.exception,
+            )
         }
     }
 
