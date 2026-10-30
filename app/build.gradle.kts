@@ -42,8 +42,8 @@ android {
 
     buildTypes {
         debug {
-            // Phones + emulator in debug builds.
-            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+            // Phones + both emulator flavors in debug builds.
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64", "x86") }
         }
         release {
             // Code + resource shrinking: cuts ~19 MB of dex down substantially.

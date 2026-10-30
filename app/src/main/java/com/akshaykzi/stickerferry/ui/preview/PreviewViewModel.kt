@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akshaykzi.stickerferry.data.repository.StickerPackRepository
 import com.akshaykzi.stickerferry.data.telegram.TelegramRepository
+import com.akshaykzi.stickerferry.domain.model.Sticker
 import com.akshaykzi.stickerferry.domain.model.StickerPack
 import com.akshaykzi.stickerferry.domain.usecase.FetchPackUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,6 +34,8 @@ class PreviewViewModel @Inject constructor(
     private val fetchPackUseCase: FetchPackUseCase,
     private val telegramRepository: TelegramRepository,
     private val stickerPackRepository: StickerPackRepository,
+    private val animatedStickerConverter: com.akshaykzi.stickerferry.data.conversion.AnimatedStickerConverter,
+    private val videoStickerConverter: com.akshaykzi.stickerferry.data.conversion.VideoStickerConverter,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -116,36 +119,82 @@ class PreviewViewModel @Inject constructor(
     }
 
     /**
-     * Downloads sticker images for thumbnail display.
+     * Downloads sticker images for thumbnail display in the preview grid.
+     *
+     * Static webp files are decodable as-is. Animated .tgs and video .webm files are
+     * NOT decodable by image loaders, so their thumbnails are rendered from the
+     * first frame (same renderers the tray icon uses) and cached separately.
      */
     private fun downloadStickerImages(pack: StickerPack) {
         viewModelScope.launch {
             val cacheDir = File(context.cacheDir, "sticker_previews").apply { mkdirs() }
-            
+
             // Limit concurrency to avoid UI lag and network congestion
             val updatedStickers = pack.stickers.chunked(5).flatMap { chunk ->
                 coroutineScope {
                     chunk.map { sticker ->
                         async(Dispatchers.IO) {
-                            if (sticker.fileId.isBlank()) return@async sticker
-                            try {
-                                val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
-                                val cacheFile = File(cacheDir, "${sticker.fileUniqueId}.webp")
-                                cacheFile.writeBytes(bytes)
-                                sticker.copy(localCachePath = cacheFile.absolutePath)
-                            } catch (_: Exception) {
-                                sticker
-                            }
+                            loadPreviewThumbnail(sticker, cacheDir)
                         }
                     }.awaitAll()
                 }
             }
 
             val currentPack = _uiState.value.pack ?: return@launch
-            _uiState.value = _uiState.value.copy(
-                pack = currentPack.copy(stickers = updatedStickers),
-            )
+            if (currentPack.identifier == pack.identifier) {
+                _uiState.value = _uiState.value.copy(
+                    pack = currentPack.copy(stickers = updatedStickers),
+                )
+            }
         }
+    }
+
+    /**
+     * Produces a decodable thumbnail file for one sticker and returns the sticker
+     * with localCachePath pointed at it. Conversion is unaffected: converters work
+     * from the Telegram file id, never from this preview cache.
+     */
+    private suspend fun loadPreviewThumbnail(sticker: Sticker, cacheDir: File): Sticker {
+        if (sticker.fileId.isBlank()) return sticker
+        return try {
+            when {
+                sticker.isAnimated || sticker.isVideo -> {
+                    val previewFile = File(cacheDir, "${sticker.fileUniqueId}_preview.webp")
+                    if (!previewFile.exists()) {
+                        val bitmap = if (sticker.isVideo) {
+                            videoStickerConverter.extractFirstFrame(sticker).getOrNull()
+                        } else {
+                            animatedStickerConverter.renderFirstFrame(sticker).getOrNull()
+                        } ?: return sticker
+                        writeThumbnail(bitmap, previewFile)
+                    }
+                    sticker.copy(localCachePath = previewFile.absolutePath)
+                }
+                else -> {
+                    // Static Telegram webp decodes directly; cache the raw bytes.
+                    val cacheFile = File(cacheDir, "${sticker.fileUniqueId}.webp")
+                    if (!cacheFile.exists()) {
+                        val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
+                        cacheFile.writeBytes(bytes)
+                    }
+                    sticker.copy(localCachePath = cacheFile.absolutePath)
+                }
+            }
+        } catch (_: Exception) {
+            sticker
+        }
+    }
+
+    private fun writeThumbnail(bitmap: android.graphics.Bitmap, target: File) {
+        val format = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
+        } else {
+            android.graphics.Bitmap.CompressFormat.WEBP
+        }
+        target.outputStream().use { out ->
+            bitmap.compress(format, 75, out)
+        }
+        bitmap.recycle()
     }
 }
 
