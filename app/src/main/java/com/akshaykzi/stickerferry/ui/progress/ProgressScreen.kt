@@ -294,31 +294,35 @@ fun ProgressScreen(
                     }
 
                     if (effectiveComplete || (!isConverting && effectiveProgress >= 1f)) {
-                        if (effectiveErrors.isEmpty()) {
-                            Button(
-                            onClick = { viewModel.addToWhatsApp() },
-                            modifier = Modifier.weight(1f).height(56.dp),
-                            shape = RoundedCornerShape(20.dp),
-                            enabled = true
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = "Complete", modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Add to WhatsApp", fontWeight = FontWeight.Bold)
-                            }
-                        } else {
+                        // Failed stickers stay visible next to Add: retry only
+                        // re-runs the failed ones, Add skips them and adds the rest.
+                        // Keeping both buttons side by side avoids the old trap where
+                        // the single button silently swapped from Retry to Add after
+                        // a successful retry.
+                        if (effectiveErrors.isNotEmpty()) {
                             FilledTonalButton(
-                            onClick = { viewModel.retryConversion(); onRetry() },
+                            onClick = { viewModel.retryFailed(); onRetry() },
                             modifier = Modifier.weight(1f).height(56.dp),
                             shape = RoundedCornerShape(16.dp)
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = "Retry", modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Retry Failed", fontWeight = FontWeight.Medium)
+                                Text("Retry", fontWeight = FontWeight.Medium)
                             }
+                        }
+                        Button(
+                        onClick = { viewModel.addToWhatsApp() },
+                        modifier = Modifier.weight(1f).height(56.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        enabled = true
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = "Complete", modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Add to WhatsApp", fontWeight = FontWeight.Bold)
                         }
                     } else if (!isConverting && effectiveErrors.isNotEmpty()) {
                         Button(
-                            onClick = { viewModel.retryConversion(); onRetry() },
+                            onClick = { viewModel.retryFailed(); onRetry() },
                             modifier = Modifier.weight(1f).height(56.dp),
                             shape = RoundedCornerShape(20.dp),
                         ) {

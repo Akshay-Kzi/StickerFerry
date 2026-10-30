@@ -42,6 +42,8 @@ class ProgressViewModel @Inject constructor(
                 pack = pack,
                 stickers = pack.stickers,
                 isConverting = true,
+                isComplete = false,
+                isCancelled = false,
                 errors = emptyList(),
             )
 
@@ -140,9 +142,16 @@ class ProgressViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(isConverting = false, isCancelled = true)
     }
 
-    fun retryConversion() {
+    /**
+     * Retries only the stickers that failed. The pack is passed with each sticker's
+     * current conversion state, so ConvertPackUseCase skips stickers that are
+     * already Done (their converted file exists) and re-converts the rest.
+     */
+    fun retryFailed() {
         val pack = _uiState.value.pack ?: return
-        startConversion(pack)
+        val stickers = _uiState.value.stickers
+        if (stickers.isEmpty()) return
+        startConversion(pack.copy(stickers = stickers, trayImageFile = "tray_icon.png"))
     }
 }
 
