@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,6 +36,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
 import com.akshaykzi.stickerferry.domain.model.StickerPack
 import com.akshaykzi.stickerferry.ui.theme.StickerFerryTheme
 
@@ -333,6 +335,18 @@ fun RecentPackItem(
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
     )
 
+    val context = LocalContext.current
+    val thumbnailFile = remember(pack.identifier, pack.stickers.firstOrNull()?.fileName) {
+        pack.stickers.firstOrNull()?.let { first ->
+            // Prefer the sticker's own cache path, then the converted output for
+            // this pack; fall back to the letter tile when no file exists yet.
+            sequenceOf(
+                first.localCachePath?.let { java.io.File(it) },
+                java.io.File(java.io.File(context.filesDir, "converted_stickers"), "${pack.identifier}/${first.fileName}"),
+            ).firstOrNull { it != null && it.exists() }
+        }
+    }
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -357,14 +371,23 @@ fun RecentPackItem(
                     .clickable { onClick() },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = pack.name.take(1).uppercase(),
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                if (thumbnailFile != null) {
+                    AsyncImage(
+                        model = thumbnailFile,
+                        contentDescription = pack.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else {
+                    Text(
+                        text = pack.name.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(16.dp))
