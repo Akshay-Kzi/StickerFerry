@@ -41,12 +41,28 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Phones + emulator in debug builds.
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        }
         release {
-            isMinifyEnabled = false
+            // Code + resource shrinking: cuts ~19 MB of dex down substantially.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Phone ABIs only for release; the debug build covers emulators.
+            // Override for local testing with -PRELEASE_ABIS=x86_64 .
+            ndk {
+                abiFilters += (project.findProperty("RELEASE_ABIS") as String?)
+                    ?.split(",")?.map { it.trim() }
+                    ?: listOf("arm64-v8a", "armeabi-v7a")
+            }
+            // Sign with the debug key so release APKs are installable for testing
+            // and side-loading; swap in a real keystore before Play Store upload.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
@@ -120,7 +136,6 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.5.0")
 
     // Animated Sticker Support
-    implementation("com.aureusapps.android:webp-android:1.1.2")
     implementation("com.airbnb.android:lottie:6.4.0")
 
     // FFmpeg-backed MediaMetadataRetriever: Android's MediaMetadataRetriever cannot
