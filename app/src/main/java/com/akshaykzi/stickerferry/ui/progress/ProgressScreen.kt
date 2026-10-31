@@ -197,7 +197,13 @@ fun ProgressScreen(
                         Spacer(modifier = Modifier.height(24.dp))
 
                         Text(
-                            text = "Processing ${effectiveIndex + 1} of ${effectiveStickers.size} stickers",
+                            text = if (effectiveComplete) {
+                                // The completed index equals the sticker count, so
+                                // "index + 1" would print "22 of 21".
+                                "All ${effectiveStickers.size} stickers ready"
+                            } else {
+                                "Processing ${(effectiveIndex + 1).coerceAtMost(effectiveStickers.size)} of ${effectiveStickers.size} stickers"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
