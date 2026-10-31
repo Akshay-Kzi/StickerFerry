@@ -3,24 +3,19 @@ package com.akshaykzi.stickerferry.data.conversion
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.net.Uri
+import com.airbnb.lottie.LottieComposition
 import com.airbnb.lottie.LottieCompositionFactory
 import com.airbnb.lottie.LottieDrawable
 import com.akshaykzi.stickerferry.data.telegram.TelegramRepository
 import com.akshaykzi.stickerferry.domain.model.Sticker
 import com.akshaykzi.stickerferry.domain.model.ConversionState
-import com.aureusapps.android.webpandroid.encoder.WebPAnimEncoder
-import com.aureusapps.android.webpandroid.encoder.WebPAnimEncoderOptions
-import com.aureusapps.android.webpandroid.encoder.WebPConfig
-import com.aureusapps.android.webpandroid.encoder.WebPMuxAnimParams
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 /**
  * Converter for Telegram animated .tgs stickers.
@@ -37,21 +32,38 @@ class AnimatedStickerConverter @Inject constructor(
         private const val MAX_ANIMATED_SIZE_BYTES = 480 * 1024L // 480KB for safety
 
         // Heuristic quality map: based on duration, pick a starting quality
-        // Complex animations (long duration) start at lower quality
+        // Complex animations (long duration) start at lower quality.
+        // Conservative values: WhatsApp rejects animated stickers over 500 KB, and
+        // high fps/quality at 512x512 easily exceeds that.
         private fun getStartingQuality(durationMs: Long): Float {
             return when {
                 durationMs > 5000 -> 30f
-                durationMs > 3000 -> 45f
-                else -> 60f
+                durationMs > 3000 -> 40f
+                else -> 55f
             }
         }
 
         private fun getStartingFps(durationMs: Long): Int {
             return when {
-                durationMs > 5000 -> 12
-                durationMs > 3000 -> 15
-                else -> 20
+                durationMs > 5000 -> 10
+                durationMs > 3000 -> 12
+                else -> 15
             }
+        }
+
+        /**
+         * Parses a .tgs payload synchronously. The async LottieCompositionFactory
+         * variant must NOT be used here: its task can deliver the result to the same
+         * listener twice (immediately + via its queued main-thread notification),
+         * which crashes "Already resumed". We are on Dispatchers.IO already, so the
+         * sync parse is both safe and simpler.
+         */
+        private fun parseLottie(json: String, cacheKey: String): LottieComposition {
+            val result = LottieCompositionFactory.fromJsonStringSync(json, cacheKey)
+            return result.value ?: throw ConversionException(
+                "Failed to parse Lottie animation: ${result.exception?.message}",
+                result.exception,
+            )
         }
     }
 
@@ -60,11 +72,7 @@ class AnimatedStickerConverter @Inject constructor(
             val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
             val json = GzipUtils.decompress(bytes)
 
-            val composition = suspendCoroutine { continuation ->
-                LottieCompositionFactory.fromJsonString(json, sticker.fileUniqueId).addListener { result ->
-                    continuation.resume(result)
-                }
-            }
+            val composition = parseLottie(json, sticker.fileUniqueId)
 
             val durationMs = composition.duration.toLong().coerceIn(MIN_DURATION_MS, MAX_DURATION_MS)
             val outputFile = File(outputDir, sticker.fileName)
@@ -76,7 +84,7 @@ class AnimatedStickerConverter @Inject constructor(
 
             var frameCount = 0
             var attempt = 0
-            val maxAttempts = 3
+            val maxAttempts = 4
 
             while (attempt < maxAttempts) {
                 frameCount = renderAndEncode(composition, outputFile, currentFps, currentQuality, currentScale, durationMs)
@@ -86,9 +94,12 @@ class AnimatedStickerConverter @Inject constructor(
                 }
 
                 // Reduce quality aggressively for next attempt
-                currentQuality *= 0.7f
-                currentFps = (currentFps * 0.8f).toInt().coerceAtLeast(8)
-                if (attempt == 1) currentScale = 0.8f // Scale down on second fail
+                currentQuality = (currentQuality * 0.65f).coerceAtLeast(15f)
+                currentFps = (currentFps * 0.75f).toInt().coerceAtLeast(8)
+                when (attempt) {
+                    1 -> currentScale = 0.85f // Scale down content on second fail
+                    2 -> currentScale = 0.7f  // and harder on third
+                }
 
                 attempt++
             }
@@ -121,23 +132,13 @@ class AnimatedStickerConverter @Inject constructor(
         durationMs: Long
     ): Int {
         val frameDurationMs = 1000 / fps
-        val totalFrames = maxOf(1, (durationMs / frameDurationMs).toInt())
+        // WhatsApp treats a 1-frame "animation" as invalid; always emit at least 2.
+        val totalFrames = maxOf(2, (durationMs / frameDurationMs).toInt())
+        val perFrameMs = (durationMs / totalFrames).coerceAtLeast(8)
 
         val lottieDrawable = LottieDrawable().apply {
             setComposition(composition)
         }
-
-        val options = WebPAnimEncoderOptions(
-            animParams = WebPMuxAnimParams(loopCount = 0)
-        )
-        val encoder = WebPAnimEncoder(context, ConversionUtils.TARGET_SIZE, ConversionUtils.TARGET_SIZE, options)
-
-        // STABLE CONFIG: Force lossy and standard quality
-        val webPConfig = WebPConfig(
-            quality = quality.coerceIn(10f, 90f),
-            lossless = WebPConfig.COMPRESSION_LOSSY
-        )
-        encoder.configure(webPConfig)
 
         val bitmap = Bitmap.createBitmap(
             ConversionUtils.TARGET_SIZE,
@@ -153,6 +154,11 @@ class AnimatedStickerConverter @Inject constructor(
 
         lottieDrawable.setBounds(margin, margin, margin + safeSize, margin + safeSize)
 
+        // Encode every frame with Android's platform WebP encoder (the same encoder
+        // that produces the app's WhatsApp-accepted static stickers), then assemble
+        // the animated container ourselves. The webp-android library's muxer output
+        // was rejected by WhatsApp ("problem with the sticker pack").
+        val framePayloads = ArrayList<ByteArray>(totalFrames)
         for (i in 0 until totalFrames) {
             val currentTimeMs = i * frameDurationMs
             lottieDrawable.progress = (currentTimeMs.toFloat() / durationMs).coerceAtMost(1.0f)
@@ -160,14 +166,27 @@ class AnimatedStickerConverter @Inject constructor(
             bitmap.eraseColor(android.graphics.Color.TRANSPARENT)
             lottieDrawable.draw(canvas)
 
-            encoder.addFrame(currentTimeMs.toLong(), bitmap)
+            framePayloads.add(encodeFrame(bitmap, quality))
         }
-
-        encoder.assemble(durationMs, Uri.fromFile(outputFile))
-        encoder.release()
         bitmap.recycle()
 
+        outputFile.writeBytes(
+            AnimatedWebPContainer.mux(framePayloads, frameDurationMs = perFrameMs)
+        )
+
         return totalFrames
+    }
+
+    /** Encodes one RGBA frame as a single-frame lossy WebP via the platform encoder. */
+    private fun encodeFrame(bitmap: Bitmap, quality: Float): ByteArray {
+        val format = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            Bitmap.CompressFormat.WEBP_LOSSY
+        } else {
+            Bitmap.CompressFormat.WEBP
+        }
+        val outputStream = ByteArrayOutputStream()
+        bitmap.compress(format, quality.toInt().coerceIn(10, 95), outputStream)
+        return outputStream.toByteArray()
     }
 
     suspend fun renderFirstFrame(sticker: Sticker): Result<Bitmap> = withContext(Dispatchers.IO) {
@@ -175,11 +194,7 @@ class AnimatedStickerConverter @Inject constructor(
             val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
             val json = GzipUtils.decompress(bytes)
 
-            val composition = suspendCoroutine { continuation ->
-                LottieCompositionFactory.fromJsonString(json, sticker.fileUniqueId).addListener { result ->
-                    continuation.resume(result)
-                }
-            }
+            val composition = parseLottie(json, sticker.fileUniqueId)
 
             val lottieDrawable = LottieDrawable().apply {
                 setComposition(composition)

@@ -19,6 +19,13 @@ import javax.inject.Singleton
 class FetchPackUseCase @Inject constructor(
     private val telegramRepository: TelegramRepository,
 ) {
+    companion object {
+        // Matches StickerFerry's own part suffixes at the end of a pack identifier:
+        // "_static", "_anim", "_static_1", "_anim_12", etc. Never matches mid-name
+        // occurrences (e.g. a genuine Telegram pack called "my_animations").
+        private val PART_SUFFIX_REGEX = Regex("_(static|anim)(_[0-9]+)?$")
+    }
+
     /**
      * Fetches a sticker pack from Telegram by its link or name.
      *
@@ -26,29 +33,37 @@ class FetchPackUseCase @Inject constructor(
      * @return Result containing the list of sticker packs (split if > 30)
      */
     suspend operator fun invoke(input: String): Result<List<StickerPack>> {
+        val rawName = extractPackName(input)
+            ?: return Result.failure(
+                IllegalArgumentException("Invalid Telegram sticker pack link: $input")
+            )
+
+        // Internal part identifiers look like "packname_static_1" / "packname_anim_2",
+        // but the Telegram API only accepts the base set name. Strip our own suffix —
+        // only when it appears at the END of the name, so real pack names that merely
+        // contain "_anim"/"_static" (e.g. "my_animations") are not mangled.
+        val baseName = PART_SUFFIX_REGEX.replace(rawName, "")
+
         return try {
-            // Extract pack name from various input formats
-            var packName = extractPackName(input)
-                ?: return Result.failure(
-                    IllegalArgumentException("Invalid Telegram sticker pack link: $input")
-                )
-
-            // NUCLEAR CLEANING:
-            // Telegram API only accepts the base pack name.
-            // If we have something like "packname_static_1" or "packname_anim_2",
-            // we strip everything from the first occurrence of "_static" or "_anim".
-            packName = packName.split("_static")[0].split("_anim")[0].trim()
-
-            // Fetch pack from Telegram API
-            val telegramPack = telegramRepository.getStickerSet(packName)
-
-            // Convert and split to domain models
-            val stickerPacks = convertAndSplitToDomain(telegramPack)
-
-            Result.success(stickerPacks)
-        } catch (e: Exception) {
-            Result.failure(e)
+            fetchAndSplit(rawName)
+        } catch (firstError: Exception) {
+            // The raw name may itself have been a suffixed part identifier whose base
+            // set exists; retry once with the stripped base name before giving up.
+            if (baseName != rawName) {
+                try {
+                    fetchAndSplit(baseName)
+                } catch (secondError: Exception) {
+                    Result.failure(firstError)
+                }
+            } else {
+                Result.failure(firstError)
+            }
         }
+    }
+
+    private suspend fun fetchAndSplit(packName: String): Result<List<StickerPack>> {
+        val telegramPack = telegramRepository.getStickerSet(packName)
+        return Result.success(convertAndSplitToDomain(telegramPack))
     }
 
     /**
@@ -118,7 +133,7 @@ class FetchPackUseCase @Inject constructor(
         val resultPacks = mutableListOf<StickerPack>()
         
         groupedStickers.forEach { (isAnimated, stickers) ->
-            val chunks = stickers.chunked(StickerPack.MAX_STICKERS)
+            val chunks = chunkForWhatsApp(stickers)
             val typePrefix = if (groupedStickers.size > 1) {
                 if (isAnimated) " (Animated)" else " (Static)"
             } else ""
@@ -142,5 +157,18 @@ class FetchPackUseCase @Inject constructor(
         }
         
         return resultPacks
+    }
+
+    /**
+     * Splits stickers into parts of at most MAX_STICKERS (30), balancing the part
+     * sizes so the final part never has fewer stickers than WhatsApp's MIN_STICKERS (3).
+     * e.g. 62 stickers -> 21/21/20 instead of 30/30/2, because WhatsApp rejects a
+     * 2-sticker pack with "at least 3 stickers" validation.
+     */
+    private fun chunkForWhatsApp(stickers: List<Sticker>): List<List<Sticker>> {
+        if (stickers.size <= StickerPack.MAX_STICKERS) return listOf(stickers)
+        val partCount = (stickers.size + StickerPack.MAX_STICKERS - 1) / StickerPack.MAX_STICKERS
+        val perPart = (stickers.size + partCount - 1) / partCount
+        return stickers.chunked(perPart)
     }
 }

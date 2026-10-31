@@ -2,6 +2,7 @@ package com.akshaykzi.stickerferry.data.telegram
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.akshaykzi.stickerferry.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -31,16 +32,11 @@ class TelegramConfig @Inject constructor(
      * First tries BuildConfig, then falls back to SharedPreferences.
      */
     fun getBotToken(): String {
-        // Try BuildConfig first (from local.properties or environment)
-        val buildConfigToken = try {
-            val clazz = Class.forName("com.akshaykzi.stickerferry.BuildConfig")
-            val field = clazz.getField("TELEGRAM_BOT_TOKEN")
-            field.get(null) as? String
-        } catch (e: Exception) {
-            null
-        }
-
-        if (!buildConfigToken.isNullOrBlank()) {
+        // Direct reference, not reflection: R8 strips classes that are only
+        // accessed reflectively, which made release builds report a missing
+        // token even though it was compiled in.
+        val buildConfigToken = BuildConfig.TELEGRAM_BOT_TOKEN
+        if (buildConfigToken.isNotBlank()) {
             return buildConfigToken
         }
 

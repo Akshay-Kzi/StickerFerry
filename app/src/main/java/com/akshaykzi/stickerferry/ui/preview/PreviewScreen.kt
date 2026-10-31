@@ -265,64 +265,34 @@ fun StickerGridItem(
     sticker: Sticker,
     modifier: Modifier = Modifier,
 ) {
-    val (containerColor, contentColor) = remember(sticker.isVideo, sticker.isAnimated) {
-        when {
-            sticker.isVideo -> Color(0xFFFFEBEE) to Color(0xFFC62828)
-            sticker.isAnimated -> Color(0xFFF3E5F5) to Color(0xFF7B1FA2)
-            else -> Color(0xFFE8F5E9) to Color(0xFF2E7D32)
-        }
-    }
-
+    // No tile background or type tag: the sticker's own transparency shows
+    // against the screen, like Telegram's sticker picker.
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(containerColor)
-            .border(1.dp, contentColor.copy(alpha = 0.1f), RoundedCornerShape(20.dp)),
+        modifier = modifier.clip(RoundedCornerShape(20.dp)),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(8.dp)
-        ) {
-            val context = LocalContext.current
-            val imageRequest = remember(sticker.localCachePath) {
-                ImageRequest.Builder(context)
-                    .data(sticker.localCachePath)
-                    .crossfade(true)
-                    .build()
-            }
+        val context = LocalContext.current
+        val imageRequest = remember(sticker.localCachePath) {
+            ImageRequest.Builder(context)
+                .data(sticker.localCachePath)
+                .crossfade(true)
+                .build()
+        }
 
-            if (sticker.localCachePath != null) {
-                AsyncImage(
-                    model = imageRequest,
-                    contentDescription = sticker.fileName,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentScale = ContentScale.Fit,
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = remember(sticker.isVideo, sticker.isAnimated) {
-                    when {
-                        sticker.isVideo -> "Video"
-                        sticker.isAnimated -> "GIF"
-                        else -> "Static"
-                    }
-                },
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = contentColor,
+        if (sticker.localCachePath != null) {
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = sticker.fileName,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(4.dp),
+                contentScale = ContentScale.Fit,
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
             )
         }
     }

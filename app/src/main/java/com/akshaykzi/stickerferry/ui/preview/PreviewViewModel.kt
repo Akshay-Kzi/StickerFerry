@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akshaykzi.stickerferry.data.repository.StickerPackRepository
 import com.akshaykzi.stickerferry.data.telegram.TelegramRepository
+import com.akshaykzi.stickerferry.domain.model.Sticker
 import com.akshaykzi.stickerferry.domain.model.StickerPack
 import com.akshaykzi.stickerferry.domain.usecase.FetchPackUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,6 +34,8 @@ class PreviewViewModel @Inject constructor(
     private val fetchPackUseCase: FetchPackUseCase,
     private val telegramRepository: TelegramRepository,
     private val stickerPackRepository: StickerPackRepository,
+    private val animatedStickerConverter: com.akshaykzi.stickerferry.data.conversion.AnimatedStickerConverter,
+    private val videoStickerConverter: com.akshaykzi.stickerferry.data.conversion.VideoStickerConverter,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -49,65 +52,56 @@ class PreviewViewModel @Inject constructor(
                 error = null,
             )
 
-            // 1. Check local storage first (by identifier or name)
+            // 1. Check local storage first. All parts are saved to the DB when the pack
+            //    is first fetched, so parts 2+ of a >30 pack load from here without any
+            //    Telegram round-trip. Previously unconverted parts were discarded here
+            //    (no local files yet) and re-fetched from Telegram by reconstructing the
+            //    base pack name from the part identifier, which failed with
+            //    "HTTP 400: Bad Request" whenever the reconstruction was wrong.
             val packIdentifier = fetchPackUseCase.extractPackName(link) ?: link
-            val localPack = stickerPackRepository.getPack(packIdentifier) ?: stickerPackRepository.getPack(link)
-            
-            if ((localPack != null) && (verifyLocalFiles(localPack))) {
+            val localPack = stickerPackRepository.getPack(packIdentifier)
+                ?: stickerPackRepository.getPack(link)
+
+            if (localPack != null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     pack = localPack,
                     editableName = localPack.name,
                     editablePublisher = localPack.publisher,
                 )
+                // Only the preview thumbnails depend on local cache files; the pack
+                // itself is converted later by the conversion pipeline.
+                if (localPack.stickers.any { it.localCachePath == null || !File(it.localCachePath).exists() }) {
+                    downloadStickerImages(localPack)
+                }
                 return@launch
             }
 
-            // 2. If it's a "Part X" identifier but not found locally, try to fetch the base pack
-            val splitMatch = Regex("(.*)_([0-9]+)$").find(packIdentifier)
-            if (splitMatch != null) {
-                val baseName = splitMatch.groupValues[1]
-                val partIndex = splitMatch.groupValues[2].toInt() - 1
+            // 2. Not in the DB: fetch from Telegram. When the link refers to a specific
+            //    part ("pack_static_2"), match the returned part by exact identifier —
+            //    positional lookup breaks for mixed static+animated packs where the part
+            //    list contains both "_static_N" and "_anim_N" entries.
+            val partNumber = Regex("(.*)_([0-9]+)$").find(packIdentifier)
+                ?.groupValues?.get(2)?.toIntOrNull()
 
-                fetchPackUseCase(baseName).onSuccess { parts ->
-                    val correctPart = parts.getOrNull(partIndex)
-                    if (correctPart != null) {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            pack = correctPart,
-                            editableName = correctPart.name,
-                            editablePublisher = correctPart.publisher,
-                        )
-                        downloadStickerImages(correctPart)
-                        return@launch
-                    }
-                }.onFailure {
-                    // If the baseName fetch fails, we let it fall through to the general fallback
-                    // which also handles baseLink extraction.
-                }
-            }
-
-            // 3. Fallback to Telegram fetch
-            val baseLink = if (splitMatch != null) splitMatch.groupValues[1] else link
-            fetchPackUseCase(baseLink)
+            fetchPackUseCase(link)
                 .onSuccess { packs ->
-                    val pack = packs.firstOrNull()
-                    if (pack != null) {
-                        // If we were looking for a specific part, try to find it in the results
-                        val finalPack = if (splitMatch != null) {
-                            val partIndex = splitMatch.groupValues[2].toInt() - 1
-                            packs.getOrNull(partIndex) ?: pack
-                        } else {
-                            pack
-                        }
+                    val pack = if (partNumber != null) {
+                        packs.firstOrNull { it.identifier == packIdentifier }
+                            ?: packs.getOrNull(partNumber - 1)
+                            ?: packs.firstOrNull()
+                    } else {
+                        packs.firstOrNull()
+                    }
 
+                    if (pack != null) {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            pack = finalPack,
-                            editableName = finalPack.name,
-                            editablePublisher = finalPack.publisher,
+                            pack = pack,
+                            editableName = pack.name,
+                            editablePublisher = pack.publisher,
                         )
-                        downloadStickerImages(finalPack)
+                        downloadStickerImages(pack)
                     } else {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
@@ -125,47 +119,82 @@ class PreviewViewModel @Inject constructor(
     }
 
     /**
-     * Downloads sticker images for thumbnail display.
+     * Downloads sticker images for thumbnail display in the preview grid.
+     *
+     * Static webp files are decodable as-is. Animated .tgs and video .webm files are
+     * NOT decodable by image loaders, so their thumbnails are rendered from the
+     * first frame (same renderers the tray icon uses) and cached separately.
      */
     private fun downloadStickerImages(pack: StickerPack) {
         viewModelScope.launch {
             val cacheDir = File(context.cacheDir, "sticker_previews").apply { mkdirs() }
-            
+
             // Limit concurrency to avoid UI lag and network congestion
             val updatedStickers = pack.stickers.chunked(5).flatMap { chunk ->
                 coroutineScope {
                     chunk.map { sticker ->
                         async(Dispatchers.IO) {
-                            if (sticker.fileId.isBlank()) return@async sticker
-                            try {
-                                val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
-                                val cacheFile = File(cacheDir, "${sticker.fileUniqueId}.webp")
-                                cacheFile.writeBytes(bytes)
-                                sticker.copy(localCachePath = cacheFile.absolutePath)
-                            } catch (_: Exception) {
-                                sticker
-                            }
+                            loadPreviewThumbnail(sticker, cacheDir)
                         }
                     }.awaitAll()
                 }
             }
 
             val currentPack = _uiState.value.pack ?: return@launch
-            _uiState.value = _uiState.value.copy(
-                pack = currentPack.copy(stickers = updatedStickers),
-            )
+            if (currentPack.identifier == pack.identifier) {
+                _uiState.value = _uiState.value.copy(
+                    pack = currentPack.copy(stickers = updatedStickers),
+                )
+            }
         }
     }
 
     /**
-     * Verifies that all sticker files for a pack exist locally.
+     * Produces a decodable thumbnail file for one sticker and returns the sticker
+     * with localCachePath pointed at it. Conversion is unaffected: converters work
+     * from the Telegram file id, never from this preview cache.
      */
-    private fun verifyLocalFiles(pack: StickerPack): Boolean {
-        if (pack.stickers.isEmpty()) return false
-        return pack.stickers.all { sticker ->
-            val path = sticker.localCachePath ?: return@all false
-            File(path).exists()
+    private suspend fun loadPreviewThumbnail(sticker: Sticker, cacheDir: File): Sticker {
+        if (sticker.fileId.isBlank()) return sticker
+        return try {
+            when {
+                sticker.isAnimated || sticker.isVideo -> {
+                    val previewFile = File(cacheDir, "${sticker.fileUniqueId}_preview.webp")
+                    if (!previewFile.exists()) {
+                        val bitmap = if (sticker.isVideo) {
+                            videoStickerConverter.extractFirstFrame(sticker).getOrNull()
+                        } else {
+                            animatedStickerConverter.renderFirstFrame(sticker).getOrNull()
+                        } ?: return sticker
+                        writeThumbnail(bitmap, previewFile)
+                    }
+                    sticker.copy(localCachePath = previewFile.absolutePath)
+                }
+                else -> {
+                    // Static Telegram webp decodes directly; cache the raw bytes.
+                    val cacheFile = File(cacheDir, "${sticker.fileUniqueId}.webp")
+                    if (!cacheFile.exists()) {
+                        val bytes = telegramRepository.downloadSticker(sticker.fileId, sticker.fileUniqueId)
+                        cacheFile.writeBytes(bytes)
+                    }
+                    sticker.copy(localCachePath = cacheFile.absolutePath)
+                }
+            }
+        } catch (_: Exception) {
+            sticker
         }
+    }
+
+    private fun writeThumbnail(bitmap: android.graphics.Bitmap, target: File) {
+        val format = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
+        } else {
+            android.graphics.Bitmap.CompressFormat.WEBP
+        }
+        target.outputStream().use { out ->
+            bitmap.compress(format, 75, out)
+        }
+        bitmap.recycle()
     }
 }
 

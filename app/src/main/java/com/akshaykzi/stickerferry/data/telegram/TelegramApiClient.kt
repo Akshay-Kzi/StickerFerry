@@ -60,7 +60,17 @@ class TelegramApiClient @Inject constructor(
         val response: HttpResponse = httpClient.get("https://api.telegram.org/bot$token/$method", block)
 
         if (!response.status.isSuccess()) {
-            throw TelegramApiException("HTTP ${response.status.value}: ${response.status.description}")
+            // Telegram sends a JSON error body (e.g. {"ok":false,"description":"Bad Request: STICKERSET_INVALID"});
+            // surface it instead of the generic status text.
+            val description = try {
+                json.parseToJsonElement(response.bodyAsText()).jsonObject["description"]
+                    ?.jsonPrimitive?.content
+            } catch (_: Exception) {
+                null
+            }
+            throw TelegramApiException(
+                "HTTP ${response.status.value}: ${description ?: response.status.description}"
+            )
         }
 
         val body = response.bodyAsText()

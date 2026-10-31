@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,6 +28,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,7 +37,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
 import com.akshaykzi.stickerferry.domain.model.StickerPack
+import kotlinx.coroutines.launch
 import com.akshaykzi.stickerferry.ui.theme.StickerFerryTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,6 +54,16 @@ fun HomeScreen(
     val context = LocalContext.current
     var stickerLink by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    // Show the scroll-to-top button after a modest scroll — the input card starts
+    // moving away almost immediately, so firstVisibleItemIndex alone would wait
+    // until it is fully off-screen.
+    val showScrollToTop by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 200
+        }
+    }
 
     // Remove scrollBehavior to prevent OEM renderer crashes
     Scaffold(
@@ -70,6 +84,24 @@ fun HomeScreen(
                     titleContentColor = MaterialTheme.colorScheme.primary,
                 ),
             )
+        },
+        floatingActionButton = {
+            AnimatedVisibility(
+                visible = showScrollToTop,
+                enter = fadeIn() + scaleIn(),
+                exit = fadeOut() + scaleOut(),
+            ) {
+                FloatingActionButton(
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "Scroll to top",
+                    )
+                }
+            }
         },
         modifier = modifier,
     ) { padding ->
@@ -92,19 +124,17 @@ fun HomeScreen(
                     )
                 }
         ) {
-            Column(
+            // Single scrollable column: scrolling the collection scrolls the input
+            // card out of the way, letting the list expand to the full screen.
+            LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+                contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp),
             ) {
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Expressive Input Area
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn() + expandVertically()
-                ) {
+                item(key = "input") {
                     ExpressiveInputArea(
                         stickerLink = stickerLink,
                         onLinkChange = {
@@ -140,55 +170,50 @@ fun HomeScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(48.dp))
-
-                // Recent Packs Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Your Collection",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 22.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    if (uiState.recentPacks.isNotEmpty()) {
-                        Icon(
-                            imageVector = Icons.Default.History,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                item(key = "collection-header") {
+                    // Recent Packs Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Your Collection",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 22.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface
                         )
+                        if (uiState.recentPacks.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
                 if (uiState.recentPacks.isEmpty()) {
-                    EmptyState(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    )
+                    item(key = "empty") {
+                        EmptyState(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(420.dp)
+                        )
+                    }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(bottom = 32.dp)
-                    ) {
-                        items(uiState.recentPacks) { pack ->
-                            RecentPackItem(
-                                pack = pack,
-                                onClick = { onNavigateToPreview(pack.identifier) },
-                                onDelete = { viewModel.removeRecentPack(pack) }
-                            )
-                        }
+                    items(
+                        items = uiState.recentPacks,
+                        key = { it.identifier },
+                    ) { pack ->
+                        RecentPackItem(
+                            pack = pack,
+                            onClick = { onNavigateToPreview(pack.identifier) },
+                            onDelete = { viewModel.removeRecentPack(pack) }
+                        )
                     }
                 }
             }
@@ -333,6 +358,18 @@ fun RecentPackItem(
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
     )
 
+    val context = LocalContext.current
+    val thumbnailFile = remember(pack.identifier, pack.stickers.firstOrNull()?.fileName) {
+        pack.stickers.firstOrNull()?.let { first ->
+            // Prefer the sticker's own cache path, then the converted output for
+            // this pack; fall back to the letter tile when no file exists yet.
+            sequenceOf(
+                first.localCachePath?.let { java.io.File(it) },
+                java.io.File(java.io.File(context.filesDir, "converted_stickers"), "${pack.identifier}/${first.fileName}"),
+            ).firstOrNull { it != null && it.exists() }
+        }
+    }
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -357,14 +394,23 @@ fun RecentPackItem(
                     .clickable { onClick() },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = pack.name.take(1).uppercase(),
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                if (thumbnailFile != null) {
+                    AsyncImage(
+                        model = thumbnailFile,
+                        contentDescription = pack.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else {
+                    Text(
+                        text = pack.name.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(16.dp))
