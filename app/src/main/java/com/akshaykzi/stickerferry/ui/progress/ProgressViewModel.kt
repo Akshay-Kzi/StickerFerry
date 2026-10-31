@@ -11,11 +11,14 @@ import com.akshaykzi.stickerferry.domain.usecase.AddToWhatsAppUseCase
 import com.akshaykzi.stickerferry.data.whatsapp.StickerContentProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
@@ -28,6 +31,7 @@ class ProgressViewModel @Inject constructor(
     private val convertPackUseCase: ConvertPackUseCase,
     private val addToWhatsAppUseCase: AddToWhatsAppUseCase,
     private val stickerPackRepository: StickerPackRepository,
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ProgressUiState())
@@ -37,7 +41,7 @@ class ProgressViewModel @Inject constructor(
 
     fun startConversion(pack: StickerPack) {
         conversionJob?.cancel()
-        conversionJob = viewModelScope.launch {
+        conversionJob = appScope.launch {
             _uiState.value = _uiState.value.copy(
                 pack = pack,
                 stickers = pack.stickers,
@@ -48,55 +52,63 @@ class ProgressViewModel @Inject constructor(
             )
 
             convertPackUseCase(pack).collect { progress ->
-                when (progress) {
-                    is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.TrayIconConverting -> {
-                        _uiState.value = _uiState.value.copy(currentStickerIndex = -1)
-                    }
-                    is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.StickerConverting -> {
-                        _uiState.value = _uiState.value.copy(currentStickerIndex = progress.index)
-                    }
-                    is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.StickerDone -> {
-                        val updatedStickers = _uiState.value.stickers.toMutableList()
-                        updatedStickers[progress.index] = progress.sticker
-                        _uiState.value = _uiState.value.copy(stickers = updatedStickers)
-                    }
-                    is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.StickerFailed -> {
-                        val updatedStickers = _uiState.value.stickers.toMutableList()
-                        val failedSticker = updatedStickers[progress.index].copy(
-                            conversionState = ConversionState.Failed(progress.error.message ?: "Unknown error"),
-                        )
-                        updatedStickers[progress.index] = failedSticker
-                        _uiState.value = _uiState.value.copy(
-                            stickers = updatedStickers,
-                            errors = _uiState.value.errors + (progress.error.message ?: "Sticker failed")
-                        )
-                    }
-                    is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.Completed -> {
-                        stickerPackRepository.savePack(progress.pack)
-                        _uiState.value = _uiState.value.copy(
-                            pack = progress.pack,
-                            stickers = progress.pack.stickers,
-                            currentStickerIndex = progress.pack.stickers.size,
-                            isConverting = false,
-                            isComplete = true,
-                            outputDir = progress.outputDir,
-                        )
-                    }
-                    is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.Failed -> {
-                        _uiState.value = _uiState.value.copy(
-                            errors = _uiState.value.errors + progress.message,
-                            isConverting = false,
-                        )
-                    }
-                    is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.ValidationFailed -> {
-                        _uiState.value = _uiState.value.copy(
-                            errors = _uiState.value.errors + progress.errors,
-                            isConverting = false,
-                        )
-                    }
-                    else -> {}
+                // State updates must happen on the main thread; the conversion runs
+                // in the application scope so leaving this screen does not cancel it.
+                withContext(Dispatchers.Main.immediate) {
+                    handleProgress(progress)
                 }
             }
+        }
+    }
+
+    private fun handleProgress(progress: com.akshaykzi.stickerferry.domain.usecase.ConversionProgress) {
+        when (progress) {
+            is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.TrayIconConverting -> {
+                _uiState.value = _uiState.value.copy(currentStickerIndex = -1)
+            }
+            is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.StickerConverting -> {
+                _uiState.value = _uiState.value.copy(currentStickerIndex = progress.index)
+            }
+            is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.StickerDone -> {
+                val updatedStickers = _uiState.value.stickers.toMutableList()
+                updatedStickers[progress.index] = progress.sticker
+                _uiState.value = _uiState.value.copy(stickers = updatedStickers)
+            }
+            is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.StickerFailed -> {
+                val updatedStickers = _uiState.value.stickers.toMutableList()
+                val failedSticker = updatedStickers[progress.index].copy(
+                    conversionState = ConversionState.Failed(progress.error.message ?: "Unknown error"),
+                )
+                updatedStickers[progress.index] = failedSticker
+                _uiState.value = _uiState.value.copy(
+                    stickers = updatedStickers,
+                    errors = _uiState.value.errors + (progress.error.message ?: "Sticker failed")
+                )
+            }
+            is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.Completed -> {
+                // The pack was already persisted by ConvertPackUseCase.
+                _uiState.value = _uiState.value.copy(
+                    pack = progress.pack,
+                    stickers = progress.pack.stickers,
+                    currentStickerIndex = progress.pack.stickers.size,
+                    isConverting = false,
+                    isComplete = true,
+                    outputDir = progress.outputDir,
+                )
+            }
+            is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.Failed -> {
+                _uiState.value = _uiState.value.copy(
+                    errors = _uiState.value.errors + progress.message,
+                    isConverting = false,
+                )
+            }
+            is com.akshaykzi.stickerferry.domain.usecase.ConversionProgress.ValidationFailed -> {
+                _uiState.value = _uiState.value.copy(
+                    errors = _uiState.value.errors + progress.errors,
+                    isConverting = false,
+                )
+            }
+            else -> {}
         }
     }
 

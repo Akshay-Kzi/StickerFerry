@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.akshaykzi.stickerferry.domain.model.StickerPack
+import kotlinx.coroutines.launch
 import com.akshaykzi.stickerferry.ui.theme.StickerFerryTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,6 +54,16 @@ fun HomeScreen(
     val context = LocalContext.current
     var stickerLink by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    // Show the scroll-to-top button after a modest scroll — the input card starts
+    // moving away almost immediately, so firstVisibleItemIndex alone would wait
+    // until it is fully off-screen.
+    val showScrollToTop by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 200
+        }
+    }
 
     // Remove scrollBehavior to prevent OEM renderer crashes
     Scaffold(
@@ -72,6 +84,24 @@ fun HomeScreen(
                     titleContentColor = MaterialTheme.colorScheme.primary,
                 ),
             )
+        },
+        floatingActionButton = {
+            AnimatedVisibility(
+                visible = showScrollToTop,
+                enter = fadeIn() + scaleIn(),
+                exit = fadeOut() + scaleOut(),
+            ) {
+                FloatingActionButton(
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "Scroll to top",
+                    )
+                }
+            }
         },
         modifier = modifier,
     ) { padding ->
@@ -97,6 +127,7 @@ fun HomeScreen(
             // Single scrollable column: scrolling the collection scrolls the input
             // card out of the way, letting the list expand to the full screen.
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 24.dp),

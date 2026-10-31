@@ -18,6 +18,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import javax.inject.Singleton
 
 /**
@@ -126,5 +129,17 @@ object AppModule {
     @Singleton
     fun provideStickerPackDao(database: StickerPackDatabase): StickerPackDao {
         return database.stickerPackDao()
+    }
+
+    /**
+     * Application-lifetime scope for work that must outlive a screen, e.g. sticker
+     * pack conversion: leaving the Progress screen no longer cancels the run, so
+     * the completed pack is always persisted. User-initiated Cancel still cancels
+     * the conversion's job explicitly.
+     */
+    @Provides
+    @Singleton
+    fun provideApplicationScope(): CoroutineScope {
+        return CoroutineScope(SupervisorJob() + Dispatchers.Default)
     }
 }
