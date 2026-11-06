@@ -280,26 +280,16 @@ fun ExpressiveInputArea(
                 singleLine = true,
                 isError = (error != null),
                 supportingText = {
-                    AnimatedVisibility(
-                        visible = (error != null),
-                        enter = fadeIn(animationSpec = tween(200)) + expandVertically(animationSpec = tween(200)),
-                        exit = fadeOut(animationSpec = tween(150)) + shrinkVertically(animationSpec = tween(150))
-                    ) {
-                        if (error != null) {
-                            Text(
-                                text = error,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
+                    if (error != null) {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
                 },
                 trailingIcon = {
-                    AnimatedVisibility(
-                        visible = stickerLink.isNotEmpty(),
-                        enter = fadeIn() + scaleIn(),
-                        exit = fadeOut() + scaleOut()
-                    ) {
+                    if (stickerLink.isNotEmpty()) {
                         IconButton(onClick = { onLinkChange("") }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Clear", modifier = Modifier.size(18.dp))
                         }
@@ -400,7 +390,7 @@ fun RecentPackItem(
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer)
+//                    .background(MaterialTheme.colorScheme.primaryContainer)
                     .clickable { onClick() },
                 contentAlignment = Alignment.Center
             ) {
