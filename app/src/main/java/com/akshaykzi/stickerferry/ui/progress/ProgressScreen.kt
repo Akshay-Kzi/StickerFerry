@@ -101,6 +101,12 @@ fun ProgressScreen(
         }
     }
 
+    val animatedProgress by animateFloatAsState(
+        targetValue = effectiveProgress,
+        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        label = "progressAnimation"
+    )
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -178,14 +184,14 @@ fun ProgressScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             CircularProgressIndicator(
-                                progress = effectiveProgress,
+                                progress = animatedProgress,
                                 modifier = Modifier.size(120.dp),
                                 strokeWidth = 12.dp,
                                 color = MaterialTheme.colorScheme.primary,
                                 trackColor = MaterialTheme.colorScheme.surfaceVariant
                             )
                             Text(
-                            text = "${(effectiveProgress * 100).toInt()}%",
+                            text = "${(animatedProgress * 100).toInt()}%",
                             style = MaterialTheme.typography.headlineMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 28.sp
@@ -374,17 +380,29 @@ fun StickerProgressItem(
     state: ConversionState,
     modifier: Modifier = Modifier,
 ) {
-    val statusColor = when (state) {
+    val targetStatusColor = when (state) {
         is ConversionState.Queued -> MaterialTheme.colorScheme.outline
         is ConversionState.Converting -> MaterialTheme.colorScheme.primary
         is ConversionState.Done -> MaterialTheme.colorScheme.primary
         is ConversionState.Failed -> MaterialTheme.colorScheme.error
     }
 
-    val containerColor = when (state) {
+    val targetContainerColor = when (state) {
         is ConversionState.Converting -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
         else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
     }
+
+    val statusColor by animateColorAsState(
+        targetValue = targetStatusColor,
+        animationSpec = tween(300),
+        label = "statusColor"
+    )
+
+    val containerColor by animateColorAsState(
+        targetValue = targetContainerColor,
+        animationSpec = tween(300),
+        label = "containerColor"
+    )
 
     Surface(
         modifier = modifier
@@ -396,8 +414,8 @@ fun StickerProgressItem(
     ) {
         Row(
             modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -407,38 +425,47 @@ fun StickerProgressItem(
                     .background(statusColor.copy(alpha = 0.2f)),
                 contentAlignment = Alignment.Center,
             ) {
-                when (state) {
-                    is ConversionState.Queued -> {
-                        Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = "Queued",
-                        modifier = Modifier.size(16.dp),
-                        tint = statusColor,
-                        )
-                    }
-                    is ConversionState.Converting -> {
-                        Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Converting",
-                        modifier = Modifier.size(16.dp),
-                        tint = statusColor,
-                        )
-                    }
-                    is ConversionState.Done -> {
-                        Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Done",
-                        modifier = Modifier.size(16.dp),
-                        tint = statusColor,
-                        )
-                    }
-                    is ConversionState.Failed -> {
-                        Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Failed",
-                        modifier = Modifier.size(16.dp),
-                        tint = statusColor,
-                        )
+                AnimatedContent(
+                    targetState = state,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.7f))
+                            .togetherWith(fadeOut(animationSpec = tween(90)) + scaleOut(targetScale = 0.7f))
+                    },
+                    label = "statusIcon"
+                ) { targetState ->
+                    when (targetState) {
+                        is ConversionState.Queued -> {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Queued",
+                                modifier = Modifier.size(16.dp),
+                                tint = statusColor,
+                            )
+                        }
+                        is ConversionState.Converting -> {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Converting",
+                                modifier = Modifier.size(16.dp),
+                                tint = statusColor,
+                            )
+                        }
+                        is ConversionState.Done -> {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Done",
+                                modifier = Modifier.size(16.dp),
+                                tint = statusColor,
+                            )
+                        }
+                        is ConversionState.Failed -> {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Failed",
+                                modifier = Modifier.size(16.dp),
+                                tint = statusColor,
+                            )
+                        }
                     }
                 }
             }

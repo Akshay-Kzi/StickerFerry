@@ -280,16 +280,26 @@ fun ExpressiveInputArea(
                 singleLine = true,
                 isError = (error != null),
                 supportingText = {
-                    if (error != null) {
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
+                    AnimatedVisibility(
+                        visible = (error != null),
+                        enter = fadeIn(animationSpec = tween(200)) + expandVertically(animationSpec = tween(200)),
+                        exit = fadeOut(animationSpec = tween(150)) + shrinkVertically(animationSpec = tween(150))
+                    ) {
+                        if (error != null) {
+                            Text(
+                                text = error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 },
                 trailingIcon = {
-                    if (stickerLink.isNotEmpty()) {
+                    AnimatedVisibility(
+                        visible = stickerLink.isNotEmpty(),
+                        enter = fadeIn() + scaleIn(),
+                        exit = fadeOut() + scaleOut()
+                    ) {
                         IconButton(onClick = { onLinkChange("") }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Clear", modifier = Modifier.size(18.dp))
                         }

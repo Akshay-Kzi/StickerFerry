@@ -1,5 +1,13 @@
 package com.akshaykzi.stickerferry.ui.navigation
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,6 +67,30 @@ fun AppNavGraph(
         navController = navController,
         startDestination = Routes.HOME,
         modifier = modifier,
+        enterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(350))
+        },
+        exitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { fullWidth -> -fullWidth / 3 },
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(350))
+        },
+        popEnterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { fullWidth -> -fullWidth / 3 },
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(350))
+        },
+        popExitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(350))
+        },
     ) {
         composable(Routes.HOME) {
             HomeScreen(
@@ -100,7 +132,21 @@ fun AppNavGraph(
             )
         }
 
-        composable(Routes.RESULT) { backStackEntry ->
+        composable(
+            route = Routes.RESULT,
+            enterTransition = {
+                scaleIn(
+                    initialScale = 0.85f,
+                    animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(400))
+            },
+            popExitTransition = {
+                scaleOut(
+                    targetScale = 0.85f,
+                    animationSpec = tween(durationMillis = 300)
+                ) + fadeOut(animationSpec = tween(300))
+            }
+        ) { backStackEntry ->
             val packId = backStackEntry.arguments?.getString("packId") ?: return@composable
             ResultScreen(
                 packId = packId,
