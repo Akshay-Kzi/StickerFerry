@@ -10,7 +10,7 @@
 ---
 ## Screenshots
 
-![StickerFerry Screenshots](https://github.com/user-attachments/assets/5c1bdbd3-8214-4825-a1eb-d5e34c704592)
+![StickerFerry Screenshots](assets/screenshots/StickerFerry.jpg)
 
 ---
 ## ✨ Features
