@@ -16,6 +16,7 @@
 ## ✨ Features
 
 - **Link-to-Pack Integration**: Just paste a `t.me/addstickers/...` link (or a bare pack name), and the app handles the rest.
+- **Bring Your Own Token**: No credentials ship inside the APK. You create a bot with [@BotFather](https://t.me/botfather), paste its token on first launch, and it stays on your device.
 - **Smart Splitting**: Telegram packs often exceed WhatsApp's 30-sticker limit. StickerFerry splits large packs into balanced, numbered parts (62 stickers become 21/21/20 rather than 30/30/2), so no part is rejected for falling below WhatsApp's 3-sticker minimum.
 - **All Sticker Formats**: Static WebP, animated `.tgs`, and video `.webm` stickers are all converted to WhatsApp-compatible files kept under its 500 KB size limit.
 - **Mixed Packs**: WhatsApp requires a pack to be entirely static or entirely animated, so mixed Telegram packs are automatically split into separate static and animated parts.
@@ -31,7 +32,7 @@
 - **Networking**: Ktor Client with Kotlinx Serialization
 - **Local Storage**: 
   - **Room Database**: For sticker pack metadata and management.
-  - **SharedPreferences**: For the optional bot token override.
+  - **SharedPreferences**: For the bot token you add in the app.
 - **Image Loading**: Coil (with custom WebP support)
 - **Concurrency**: Kotlin Coroutines & Flow
 - **Navigation**: Compose Navigation
@@ -42,8 +43,9 @@ You can download StickerFerry as an APK through GitHub Releases
 
 1. Open the [latest release](https://github.com/Akshay-Kzi/StickerFerry/releases/latest) and download `app-release.apk` (about 14 MB).
 2. Open the downloaded file on your phone. If Android prompts you, allow installs from your browser or file manager.
-3. Launch StickerFerry, paste a `t.me/addstickers/...` link (or share one to the app from Telegram), then tap **Convert to WhatsApp**.
-4. For packs with more than 30 stickers, add each numbered part from the result screen — StickerFerry points you to the next one.
+3. Launch StickerFerry. It asks for a Telegram bot token on first launch: create a bot with [@BotFather](https://t.me/botfather), paste the token it gives you, and the app verifies it before saving it (see the [FAQ](#-faq)).
+4. Paste a `t.me/addstickers/...` link (or share one to the app from Telegram), then tap **Convert**.
+5. For packs with more than 30 stickers, add each numbered part from the result screen — StickerFerry points you to the next one.
 
 Requires Android 8.0 (API 26) or newer and WhatsApp or WhatsApp Business installed.
 
@@ -53,21 +55,15 @@ Requires Android 8.0 (API 26) or newer and WhatsApp or WhatsApp Business install
 - Android Studio Iguana (2023.2.1) or newer.
 - JDK 17.
 - Android SDK with API 35.
-- A Telegram Bot Token from [@BotFather](https://t.me/botfather), used for the Bot API calls.
+- No bot token is needed to build. To *run* the app you'll need a token from [@BotFather](https://t.me/botfather), entered in-app.
 
 ### Setup
 1. Clone the repository:
    ```bash
    git clone https://github.com/Akshay-Kzi/StickerFerry.git
    ```
-2. Set up your environment variables:
-   - Copy `local.properties.example` to `local.properties`.
-   - Add your `TELEGRAM_BOT_TOKEN` to `local.properties`.
-   ```properties
-   TELEGRAM_BOT_TOKEN=your_token_here
-   ```
-   > `local.properties` is gitignored for a reason: the token is compiled into the APK. Never commit it or share a build made with it.
-3. Sync the project with Gradle and run it on your device/emulator.
+2. Open the project in Android Studio and let Gradle sync — it generates `local.properties` with your SDK path.
+3. Run it on your device/emulator.
 4. To build an installable APK from the command line:
    ```bash
    ./gradlew assembleDebug
@@ -89,6 +85,8 @@ Requires Android 8.0 (API 26) or newer and WhatsApp or WhatsApp Business install
 **Why do I see several packs for one Telegram pack?** WhatsApp caps a pack at 30 stickers, so anything larger is split into numbered parts. Add them one by one from the result screen. You only need to do this once; parts are also kept in the offline library.
 
 **Does StickerFerry need Telegram installed?** No. It talks to the Telegram Bot API directly. WhatsApp (or WhatsApp Business) does need to be installed, since that's where the packs are handed off.
+
+**Why does it ask for a Telegram bot token?** The Bot API requires one, and embedding a shared token in the APK would hand every user the same credential — anyone who downloaded it could extract it. Instead you create your own bot with [@BotFather](https://t.me/botfather) (`/newbot`), paste the token the app asks for, and it is verified once and stored on your device. You can replace or remove it any time from the key icon on the home screen.
 
 ## 🤝 Credits & Inspiration
 

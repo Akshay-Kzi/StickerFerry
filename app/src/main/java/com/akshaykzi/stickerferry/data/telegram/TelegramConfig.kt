@@ -2,7 +2,6 @@ package com.akshaykzi.stickerferry.data.telegram
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.akshaykzi.stickerferry.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -11,8 +10,9 @@ import javax.inject.Singleton
 /**
  * Configuration for the Telegram bot.
  *
- * This class manages the bot token and other configuration settings.
- * The bot token should be stored securely and never committed to version control.
+ * The bot token belongs to whoever uses the app: it is entered on the device and
+ * kept in app-private storage. Nothing is baked into the APK, so a published
+ * build can never leak a working token.
  */
 @Singleton
 class TelegramConfig @Inject constructor(
@@ -28,19 +28,10 @@ class TelegramConfig @Inject constructor(
     }
 
     /**
-     * Gets the Telegram bot token.
-     * First tries BuildConfig, then falls back to SharedPreferences.
+     * Gets the Telegram bot token the user saved on this device.
+     * Returns an empty string until they add one.
      */
     fun getBotToken(): String {
-        // Direct reference, not reflection: R8 strips classes that are only
-        // accessed reflectively, which made release builds report a missing
-        // token even though it was compiled in.
-        val buildConfigToken = BuildConfig.TELEGRAM_BOT_TOKEN
-        if (buildConfigToken.isNotBlank()) {
-            return buildConfigToken
-        }
-
-        // Fall back to SharedPreferences
         return prefs.getString(KEY_BOT_TOKEN, "") ?: ""
     }
 
@@ -49,7 +40,7 @@ class TelegramConfig @Inject constructor(
      * This is used when the user enters the token manually.
      */
     fun saveBotToken(token: String) {
-        prefs.edit().putString(KEY_BOT_TOKEN, token).apply()
+        prefs.edit().putString(KEY_BOT_TOKEN, token.trim()).apply()
     }
 
     /**
@@ -68,5 +59,18 @@ class TelegramConfig @Inject constructor(
 
     companion object {
         private const val KEY_BOT_TOKEN = "bot_token"
+
+        // BotFather tokens look like "123456789:AAH..." — digits, a colon, then
+        // 35 URL-safe characters. Accept a little slack so new token formats
+        // aren't rejected, and let Telegram be the real judge.
+        private val BOT_TOKEN_PATTERN = Regex("""\d{5,}:[A-Za-z0-9_-]{30,}""")
+
+        /**
+         * Cheap client-side sanity check before hitting the network. This is a
+         * shape check only; a well-formed token can still be revoked.
+         */
+        fun isPlausibleBotToken(token: String): Boolean {
+            return BOT_TOKEN_PATTERN.matches(token.trim())
+        }
     }
 }

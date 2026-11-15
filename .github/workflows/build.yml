@@ -37,8 +37,6 @@ jobs:
 
       - name: Build debug APK
         run: ./gradlew assembleDebug
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -76,7 +74,6 @@ jobs:
       - name: Build release APK
         run: ./gradlew assembleRelease
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           STORE_FILE: ${{ secrets.STORE_FILE }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}

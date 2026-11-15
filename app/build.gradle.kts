@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -23,20 +21,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
-        }
-
-        val tokenFromEnv = System.getenv("TELEGRAM_BOT_TOKEN")
-        if (!tokenFromEnv.isNullOrBlank()) {
-            buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"$tokenFromEnv\"")
-        } else {
-            val localProps = rootProject.file("local.properties")
-            if (localProps.exists()) {
-                val props = Properties()
-                props.load(localProps.inputStream())
-                buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"${props.getProperty("TELEGRAM_BOT_TOKEN", "")}\"")
-            } else {
-                buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"\"")
-            }
         }
     }
 

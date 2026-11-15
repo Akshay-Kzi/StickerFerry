@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Keep the user's bot token out of cloud backups and device transfers. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="telegram_config.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="telegram_config.xml" />
+    </device-transfer>
+</data-extraction-rules>

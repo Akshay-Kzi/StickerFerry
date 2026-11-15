@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,8 +50,26 @@ fun HomeScreen(
     onStickerLinkSubmitted: (String) -> Unit = {},
     onNavigateToPreview: (String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
+    tokenViewModel: BotTokenViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val tokenState by tokenViewModel.state.collectAsState()
+    var showTokenDialog by rememberSaveable { mutableStateOf(false) }
+    var autoPrompted by rememberSaveable { mutableStateOf(false) }
+
+    // First launch with no token: ask for one instead of failing on Convert.
+    LaunchedEffect(tokenState.hasToken, autoPrompted) {
+        if (!tokenState.hasToken && !autoPrompted) {
+            autoPrompted = true
+            showTokenDialog = true
+        }
+    }
+
+    // A verified save closes the dialog on its own.
+    LaunchedEffect(tokenState.saved) {
+        if (tokenState.saved) showTokenDialog = false
+    }
+
     val context = LocalContext.current
     var stickerLink by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
@@ -83,6 +102,19 @@ fun HomeScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.primary,
                 ),
+                actions = {
+                    IconButton(onClick = { showTokenDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Key,
+                            contentDescription = if (tokenState.hasToken) "Bot token" else "Add bot token",
+                            tint = if (tokenState.hasToken) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                        )
+                    }
+                },
             )
         },
         floatingActionButton = {
@@ -134,6 +166,12 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(24.dp),
                 contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp),
             ) {
+                if (!tokenState.hasToken) {
+                    item(key = "token-banner") {
+                        BotTokenBanner(onAddToken = { showTokenDialog = true })
+                    }
+                }
+
                 item(key = "input") {
                     ExpressiveInputArea(
                         stickerLink = stickerLink,
@@ -157,7 +195,10 @@ fun HomeScreen(
                             }
                         },
                         onConvert = {
-                            if (stickerLink.isBlank()) {
+                            if (!tokenState.hasToken) {
+                                validationError = null
+                                showTokenDialog = true
+                            } else if (stickerLink.isBlank()) {
                                 validationError = "Please enter a sticker link"
                             } else if (!isValidTelegramLink(stickerLink)) {
                                 validationError = "Invalid Telegram sticker link format"
@@ -224,6 +265,18 @@ fun HomeScreen(
                     onStickerLinkSubmitted(stickerLink)
                     viewModel.consumeNavigationEvent()
                 }
+            }
+
+            if (showTokenDialog) {
+                BotTokenDialog(
+                    state = tokenState,
+                    onSave = tokenViewModel::save,
+                    onClear = tokenViewModel::clear,
+                    onDismiss = {
+                        showTokenDialog = false
+                        tokenViewModel.clearError()
+                    },
+                )
             }
         }
     }
