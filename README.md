@@ -8,7 +8,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
+## Screenshots
 
+![StickerFerry Screenshots](https://github.com/user-attachments/assets/5c1bdbd3-8214-4825-a1eb-d5e34c704592)
+
+---
 ## ✨ Features
 
 - **Link-to-Pack Integration**: Just paste a `t.me/addstickers/...` link (or a bare pack name), and the app handles the rest.
